@@ -1,14 +1,17 @@
 // Vercel's Express framework detector loads this file as the
-// serverless entrypoint and expects the default export to be an
-// Express app (which itself is a (req, res) handler).
+// serverless entrypoint. It requires a direct `import express` to
+// recognise the file, and a default export that is an Express app
+// (Express apps are themselves (req, res) handlers).
 //
-// The detector also requires a DIRECT `import express` in the
-// candidate file before it will accept it — an indirect import via
-// our http.ts is not enough. The annotation below keeps the symbol in
-// scope so TypeScript does not strip the import.
+// We import the heavy lifting from the already-built dist/ instead
+// of from sibling TS files: Vercel's adapter does a second tsc pass
+// on transitively-imported TS source with different settings than
+// tsconfig.json (no esModuleInterop), which breaks default-imports
+// of CJS deps like helmet and express-rate-limit. By importing JS
+// directly, the adapter has nothing to recompile.
 //
 // Local/Docker deployments still run via src/index.ts which calls
-// app.listen().
+// app.listen() — completely independent of this file.
 //
 // NOTE: On serverless targets the /mcp endpoint is unreliable —
 // session state lives in memory and is lost across cold starts.
@@ -16,7 +19,9 @@
 // dispatch).
 
 import express from "express";
-import { buildApp } from "./http.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore -- the .js path exists post-build; ts has no .d.ts for it.
+import { buildApp } from "../dist/http.js";
 
 const app: express.Express = buildApp();
 export default app;
