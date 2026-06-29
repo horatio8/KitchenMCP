@@ -5,33 +5,39 @@ import { expandShape, paginationShape, pickQuery } from "./common.js";
 export function registerTaskTools(reg: ToolRegistry): void {
   reg.addCall({
     name: "kitchen_list_tasks",
-    description: "List tasks. Optional filters: list_id, board_id, assignee, milestone, label, state, title.",
+    description:
+      "List tasks on a board. board_id is required (use kitchen_list_boards to find it). Optional filters: title, status, members, lists, labels, repeating, starts_at, due_at, custom_fields.",
     readOnly: true,
     method: "GET",
     inputSchema: {
+      board_id: z.string().describe("Board ID (tskb_…) to list tasks for."),
       ...paginationShape,
       ...expandShape,
-      list_id: z.string().optional(),
-      board_id: z.string().optional(),
-      milestone: z.string().optional(),
-      assignee: z.string().optional(),
-      label: z.string().optional(),
-      state: z.enum(["active", "archived", "all"]).optional(),
       title: z.string().optional(),
+      status: z.string().optional().describe("Status filter, e.g. 'open', 'closed'."),
+      repeating: z.boolean().optional(),
+      members: z.array(z.string()).optional().describe("User IDs filter."),
+      lists: z.array(z.string()).optional().describe("List IDs filter."),
+      labels: z.array(z.string()).optional().describe("Label IDs filter."),
+      starts_at: z.string().optional().describe("ISO 8601 start date filter."),
+      due_at: z.string().optional().describe("ISO 8601 due date filter."),
+      custom_fields: z.record(z.unknown()).optional(),
     },
-    buildRequest: (input) => ({
-      path: "/api/tasks",
-      query: pickQuery(input, [
+    buildRequest: ({ board_id, ...input }) => ({
+      path: `/api/boards/${encodeURIComponent(board_id)}/tasks`,
+      query: pickQuery(input as Record<string, unknown>, [
         "page",
         "per_page",
         "expand",
-        "list_id",
-        "board_id",
-        "milestone",
-        "assignee",
-        "label",
-        "state",
         "title",
+        "status",
+        "repeating",
+        "members",
+        "lists",
+        "labels",
+        "starts_at",
+        "due_at",
+        "custom_fields",
       ]),
     }),
   });
@@ -53,38 +59,38 @@ export function registerTaskTools(reg: ToolRegistry): void {
 
   reg.addCall({
     name: "kitchen_create_task",
-    description: "Create a task on a list. Requires list_id and title.",
+    description:
+      "Create a task on a board. Requires board_id, list (list ID), and title.",
     method: "POST",
     inputSchema: {
-      list_id: z.string().describe("ID of the list to attach this task to."),
+      board_id: z.string().describe("Board ID (tskb_…) the task belongs to."),
+      list: z.string().describe("List ID (column) the task belongs to."),
       title: z.string(),
       description: z.string().optional(),
-      assignees: z.array(z.string()).optional().describe("User IDs to assign."),
-      due_date: z.string().optional().describe("ISO 8601 due date."),
-      start_date: z.string().optional().describe("ISO 8601 start date."),
-      priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
-      milestone_id: z.string().optional(),
-      labels: z.array(z.string()).optional(),
+      members: z.array(z.string()).optional().describe("User IDs to assign."),
+      due_at: z.string().optional().describe("ISO 8601 due date."),
+      starts_at: z.string().optional().describe("ISO 8601 start date."),
+      milestone: z.string().optional().describe("Milestone ID."),
+      labels: z.array(z.string()).optional().describe("Label IDs."),
     },
-    buildRequest: (input) => ({
-      path: "/api/tasks",
-      body: input,
+    buildRequest: ({ board_id, ...body }) => ({
+      path: `/api/boards/${encodeURIComponent(board_id)}/tasks`,
+      body,
     }),
   });
 
   reg.addCall({
     name: "kitchen_update_task",
     description: "Update a task. Only provided fields will be changed.",
-    method: "PATCH",
+    method: "PUT",
     inputSchema: {
       id: z.string(),
       title: z.string().optional(),
       description: z.string().optional(),
-      due_date: z.string().nullable().optional(),
-      start_date: z.string().nullable().optional(),
-      priority: z.enum(["low", "medium", "high", "urgent"]).nullable().optional(),
-      milestone_id: z.string().nullable().optional(),
-      list_id: z.string().optional(),
+      due_at: z.string().nullable().optional(),
+      starts_at: z.string().nullable().optional(),
+      milestone: z.string().nullable().optional(),
+      list: z.string().optional().describe("List ID to move the task into."),
     },
     buildRequest: ({ id, ...rest }) => ({
       path: `/api/tasks/${encodeURIComponent(id)}`,
@@ -103,26 +109,26 @@ export function registerTaskTools(reg: ToolRegistry): void {
 
   reg.addCall({
     name: "kitchen_toggle_task_completion",
-    description: "Toggle a task's completion state.",
-    method: "POST",
+    description: "Toggle a task's completion state (open ⇄ closed).",
+    method: "GET",
     inputSchema: { id: z.string() },
     buildRequest: ({ id }) => ({
-      path: `/api/tasks/${encodeURIComponent(id)}/toggle-completion`,
+      path: `/api/tasks/${encodeURIComponent(id)}/completed`,
     }),
   });
 
   reg.addCall({
-    name: "kitchen_move_tasks",
-    description: "Move one or more tasks to a different list/position.",
+    name: "kitchen_move_task",
+    description: "Move a task to a different board and/or list.",
     method: "POST",
     inputSchema: {
-      task_ids: z.array(z.string()).min(1),
-      list_id: z.string(),
-      position: z.number().int().optional(),
+      id: z.string(),
+      board: z.string().describe("Destination board ID."),
+      list: z.string().describe("Destination list ID."),
     },
-    buildRequest: (input) => ({
-      path: "/api/tasks/move",
-      body: input,
+    buildRequest: ({ id, board, list }) => ({
+      path: `/api/tasks/${encodeURIComponent(id)}/move`,
+      body: { board, list },
     }),
   });
 
