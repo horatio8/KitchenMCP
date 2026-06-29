@@ -93,6 +93,61 @@ Tool names follow the pattern `kitchen_<verb>_<resource>`. A non-exhaustive over
 
 Call `tools/list` from your MCP client for the full, schema-rich catalogue.
 
+## Webhook receiver
+
+This server also runs a verified Kitchen-webhook ingress at `POST /webhooks/kitchen`. It is **off by default** — enable it by setting `KITCHEN_WEBHOOK_SECRETS`.
+
+### Set up
+
+1. In Kitchen, create a webhook (Settings → API & Webhooks → Webhooks) pointed at `https://<your-host>/webhooks/kitchen`, subscribe to the events you want, and copy the generated `secret`.
+2. Set `KITCHEN_WEBHOOK_SECRETS=<secret>` on the server. Multiple secrets (comma-separated) are supported so you can run several Kitchen workspaces or rotate without downtime — the receiver tries each in constant time.
+3. (Optional) Set `KITCHEN_WEBHOOK_FORWARD_URL` if your actual handler lives elsewhere. The verifier POSTs the verified event JSON to that URL with an optional `X-Forward-Token` header (`KITCHEN_WEBHOOK_FORWARD_TOKEN`).
+
+### Guarantees
+
+- **Signature verification.** HMAC-SHA256 over the **raw request bytes** as received, compared in constant time. Matches Kitchen's [best-practices doc](https://developer.kitchen.co/webhooks/best-practices) exactly. Re-encoding the body is *not* used — that would be fragile across JSON serializers.
+- **Idempotency.** Each `event.id` is processed at most once in a 24-hour window (Kitchen retries up to 3 times with backoff). Duplicates ack 200 so Kitchen stops retrying.
+- **Asynchronous dispatch.** The receiver acks Kitchen as soon as the signature and shape are verified; downstream forwarding is fire-and-forget so a slow consumer can't time out the webhook.
+- **Body cap.** 1 MiB hard cap.
+- **No rate-limit on the webhook path.** Kitchen's retries should never be dropped at the edge.
+
+### Response codes
+
+| Code | Meaning |
+|---|---|
+| `200 {"ok":true}` | Verified, accepted, dispatching now. |
+| `200 {"ok":true,"duplicate":true}` | Replay of an event we already processed. |
+| `401 {"error":"invalid_signature"}` | Missing or wrong `Signature` header. |
+| `400 {"error":"invalid_json"}` / `invalid_event_shape` / `empty_body` | Malformed payload. |
+| `503 {"error":"webhook_receiver_not_configured"}` | `KITCHEN_WEBHOOK_SECRETS` is empty. |
+
+### Extending the dispatcher
+
+By default the dispatcher just logs the event and (optionally) forwards it. To wire in your own handler, edit `src/webhooks/dispatcher.ts` — `WebhookDispatcher.dispatch(event)` is the single integration point. Switch on `event.type` (e.g. `task.created`, `invoice.paid`, `client.updated`) and call your code from there.
+
+```ts
+async dispatch(event: KitchenWebhookEvent): Promise<void> {
+  switch (event.type) {
+    case "invoice.paid":     await onInvoicePaid(event.data); break;
+    case "task.created":     await onTaskCreated(event.data); break;
+    case "client.updated":   await onClientUpdated(event.data, event.previous_attributes); break;
+    default: logger.debug({ type: event.type }, "unhandled webhook");
+  }
+}
+```
+
+### Verifying locally
+
+```bash
+SECRET='whsec_...your_secret...'
+PAYLOAD='{"id":"evt_test","type":"task.created","created":1719322973,"data":{}}'
+SIG=$(node -e "const c=require('crypto');process.stdout.write(c.createHmac('sha256','$SECRET').update('$PAYLOAD').digest('hex'))")
+curl -X POST http://127.0.0.1:3000/webhooks/kitchen \
+  -H "Content-Type: application/json" \
+  -H "Signature: $SIG" \
+  --data "$PAYLOAD"
+```
+
 ## Deployment recipes
 
 ### Fly.io

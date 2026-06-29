@@ -7,6 +7,7 @@ import { timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { handleMcpRequest } from "./server.js";
+import { buildWebhookRouter } from "./webhooks/receiver.js";
 
 const JSON_MAX = "1mb";
 
@@ -104,6 +105,11 @@ export function buildApp(): express.Express {
     }),
   );
 
+  // IMPORTANT: mount the webhook router BEFORE express.json() so its
+  // express.raw() parser captures the untouched bytes Kitchen signed.
+  // The receiver has its own size cap.
+  app.use("/webhooks", buildWebhookRouter());
+
   app.use(express.json({ limit: JSON_MAX }));
 
   const limiter = rateLimit({
@@ -111,6 +117,9 @@ export function buildApp(): express.Express {
     limit: config.httpRateLimitPerMinute,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    // Skip rate-limiting on webhook deliveries — Kitchen retries on
+    // failure and we don't want our edge to drop legitimate redelivery.
+    skip: (req) => req.path.startsWith("/webhooks/"),
     // Identify clients primarily by API key (workspace+token hash) when
     // available, falling back to IP. Use a fingerprint that doesn't leak
     // the raw key into limiter storage.
@@ -135,7 +144,12 @@ export function buildApp(): express.Express {
   app.use(limiter);
 
   app.get("/healthz", (_req, res) => {
-    res.json({ ok: true, service: "kitchen-mcp-server", version: "0.1.0" });
+    res.json({
+      ok: true,
+      service: "kitchen-mcp-server",
+      version: "0.1.0",
+      webhookReceiver: config.webhookSecrets.length > 0 ? "enabled" : "disabled",
+    });
   });
 
   // MCP endpoint

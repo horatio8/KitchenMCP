@@ -26,6 +26,11 @@ export const config = {
   ),
   trustProxy: process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true",
   logLevel: process.env.LOG_LEVEL?.trim() || "info",
+
+  // Webhook receiver
+  webhookSecrets: parseList(process.env.KITCHEN_WEBHOOK_SECRETS),
+  webhookForwardUrl: process.env.KITCHEN_WEBHOOK_FORWARD_URL?.trim() || null,
+  webhookForwardToken: process.env.KITCHEN_WEBHOOK_FORWARD_TOKEN?.trim() || null,
 } as const;
 
 export type Config = typeof config;
