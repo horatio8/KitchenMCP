@@ -157,6 +157,8 @@ export function buildApp(): express.Express {
       "embed",
       "quote",
       "milestone",
+      "client",
+      "company",
     ];
     const hasShared = config.webhookSecrets.length > 0;
     for (const cat of allCategories) {

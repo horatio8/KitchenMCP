@@ -19,6 +19,8 @@ export const WEBHOOK_CATEGORIES = [
   "embed",
   "quote",
   "milestone",
+  "client",
+  "company",
 ] as const;
 
 export type WebhookCategory = (typeof WEBHOOK_CATEGORIES)[number];
