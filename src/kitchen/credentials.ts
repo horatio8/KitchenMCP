@@ -1,5 +1,6 @@
 import type { Request } from "express";
 import { config } from "../config.js";
+import { extractCredentialsFromBearer } from "../oauth/index.js";
 
 export interface KitchenCredentials {
   apiKey: string;
@@ -9,16 +10,25 @@ export interface KitchenCredentials {
 const WORKSPACE_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$/;
 
 /**
- * Pull Kitchen credentials from per-request headers. Falls back to env
- * defaults only when explicitly configured (single-tenant mode).
+ * Resolve Kitchen credentials for a request. Priority:
+ *   1. OAuth Bearer JWT issued by our own /oauth/token endpoint
+ *      (carries the workspace creds inside the access token).
+ *   2. Per-request X-Kitchen-API-Key / X-Kitchen-Workspace headers
+ *      (multi-tenant clients that supply their own creds).
+ *   3. KITCHEN_API_KEY + KITCHEN_WORKSPACE env vars (single-tenant
+ *      fallback).
  *
- * Recognized headers (case-insensitive):
- *   X-Kitchen-API-Key   — Kitchen workspace bearer token
- *   X-Kitchen-Workspace — Workspace subdomain (e.g. "acme" -> acme.kitchen.co)
+ * Returns null when nothing resolves to a usable pair.
  */
 export function extractKitchenCredentials(
   req: Request,
 ): KitchenCredentials | null {
+  const bearer = extractCredentialsFromBearer(req.header("authorization"));
+  if (bearer) {
+    if (!WORKSPACE_PATTERN.test(bearer.workspace)) return null;
+    return bearer;
+  }
+
   const headerKey = firstHeader(req, "x-kitchen-api-key");
   const headerWs = firstHeader(req, "x-kitchen-workspace");
 

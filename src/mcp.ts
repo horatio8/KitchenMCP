@@ -53,15 +53,27 @@ export async function handleMcpRequest(req: Request, res: Response): Promise<voi
   // Initialize a new session.
   if (!sessionId && req.method === "POST" && isInitializeRequest(req.body)) {
     if (!credentials) {
-      res.status(401).json({
-        jsonrpc: "2.0",
-        error: {
-          code: -32001,
-          message:
-            "Missing Kitchen credentials. Send X-Kitchen-API-Key and X-Kitchen-Workspace headers, or configure server-side fallbacks.",
-        },
-        id: null,
-      });
+      const xfp = (req.headers["x-forwarded-proto"] as string | undefined)
+        ?.split(",")[0]
+        ?.trim();
+      const origin = `${xfp || req.protocol}://${req.headers.host}`;
+      // Per RFC 9728: tell the client where to find OAuth metadata. Claude
+      // picks this up and starts the auth flow automatically.
+      res
+        .status(401)
+        .set(
+          "WWW-Authenticate",
+          `Bearer realm="mcp", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+        )
+        .json({
+          jsonrpc: "2.0",
+          error: {
+            code: -32001,
+            message:
+              "Authentication required. OAuth metadata at /.well-known/oauth-authorization-server, or supply X-Kitchen-API-Key + X-Kitchen-Workspace headers.",
+          },
+          id: null,
+        });
       return;
     }
 

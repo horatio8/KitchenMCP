@@ -7,6 +7,7 @@ import { timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { handleMcpRequest } from "./mcp.js";
+import { buildOAuthRouter, extractCredentialsFromBearer, getSigningSecret } from "./oauth/index.js";
 import { buildWebhookRouter } from "./webhooks/receiver.js";
 
 const JSON_MAX = "1mb";
@@ -23,20 +24,44 @@ function gateMcpAuth(req: Request, res: Response, next: NextFunction): void {
 
   const auth = req.header("authorization");
   const xMcp = req.header("x-mcp-auth");
-  let provided: string | null = null;
 
+  // Path 1: OAuth Bearer JWT issued by our /oauth/token endpoint. Any
+  // valid access token grants /mcp access — credentials live inside
+  // the token itself.
+  if (auth && extractCredentialsFromBearer(auth)) {
+    return next();
+  }
+
+  // Path 2: legacy shared bearer / X-MCP-Auth header equal to
+  // MCP_GATE_TOKEN. Kept for non-browser MCP clients that can send
+  // arbitrary headers.
+  let provided: string | null = null;
   if (auth?.startsWith("Bearer ")) provided = auth.slice("Bearer ".length).trim();
   else if (xMcp) provided = xMcp.trim();
-
   if (provided && constantTimeEquals(provided, config.mcpGateToken)) {
     return next();
   }
 
-  res.status(401).json({
-    jsonrpc: "2.0",
-    error: { code: -32001, message: "Unauthorized: invalid or missing MCP gate token." },
-    id: null,
-  });
+  // Surface the OAuth metadata location so Claude can start a flow.
+  const xfp = (req.headers["x-forwarded-proto"] as string | undefined)
+    ?.split(",")[0]
+    ?.trim();
+  const origin = `${xfp || req.protocol}://${req.headers.host}`;
+  res
+    .status(401)
+    .set(
+      "WWW-Authenticate",
+      `Bearer realm="mcp", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+    )
+    .json({
+      jsonrpc: "2.0",
+      error: {
+        code: -32001,
+        message:
+          "Unauthorized. Start OAuth at /.well-known/oauth-authorization-server, or send a valid MCP gate token.",
+      },
+      id: null,
+    });
 }
 
 function originGate(req: Request, res: Response, next: NextFunction): void {
@@ -110,6 +135,10 @@ export function buildApp(): express.Express {
   // The receiver has its own size cap.
   app.use("/webhooks", buildWebhookRouter());
 
+  // OAuth router mounts its own body parsers per-route, so it can sit
+  // before the global JSON parser too.
+  app.use(buildOAuthRouter());
+
   app.use(express.json({ limit: JSON_MAX }));
 
   const limiter = rateLimit({
@@ -119,7 +148,12 @@ export function buildApp(): express.Express {
     legacyHeaders: false,
     // Skip rate-limiting on webhook deliveries — Kitchen retries on
     // failure and we don't want our edge to drop legitimate redelivery.
-    skip: (req) => req.path.startsWith("/webhooks/"),
+    // Also skip OAuth surface so login flows aren't accidentally
+    // throttled per-IP.
+    skip: (req) =>
+      req.path.startsWith("/webhooks/") ||
+      req.path.startsWith("/oauth/") ||
+      req.path.startsWith("/.well-known/"),
     // Identify clients primarily by API key (workspace+token hash) when
     // available, falling back to IP. Use a fingerprint that doesn't leak
     // the raw key into limiter storage.
@@ -167,12 +201,28 @@ export function buildApp(): express.Express {
         enabledCategories.push(cat);
       }
     }
+    const oauthReady = Boolean(
+      getSigningSecret() &&
+        config.mcpGateToken &&
+        config.fallbackKitchenApiKey &&
+        config.fallbackKitchenWorkspace,
+    );
     res.json({
       ok: true,
       service: "kitchen-mcp-server",
       version: "0.1.0",
       webhookReceiver: hasShared || enabledCategories.length > 0 ? "enabled" : "disabled",
       webhookCategoriesEnabled: enabledCategories,
+      oauth: {
+        ready: oauthReady,
+        // Surface which prerequisites are missing without leaking values.
+        missing: [
+          !getSigningSecret() && "OAUTH_SIGNING_KEY (or MCP_GATE_TOKEN)",
+          !config.mcpGateToken && "MCP_GATE_TOKEN (login password)",
+          !config.fallbackKitchenApiKey && "KITCHEN_API_KEY",
+          !config.fallbackKitchenWorkspace && "KITCHEN_WORKSPACE",
+        ].filter(Boolean),
+      },
     });
   });
 
