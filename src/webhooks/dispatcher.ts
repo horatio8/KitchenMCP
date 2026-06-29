@@ -34,24 +34,30 @@ export class WebhookDispatcher {
    * heavy work to a queue. We perform forward POSTs asynchronously and
    * never block the original HTTP response on them.
    */
-  async dispatch(event: KitchenWebhookEvent): Promise<void> {
+  async dispatch(
+    event: KitchenWebhookEvent,
+    category: string | null = null,
+  ): Promise<void> {
     logger.info(
-      { eventId: event.id, type: event.type, created: event.created },
+      { eventId: event.id, type: event.type, category, created: event.created },
       "kitchen webhook received",
     );
 
     if (this.opts.forwardUrl) {
       // Fire-and-forget; errors are logged but do not surface to Kitchen.
-      this.forward(event).catch((err) => {
+      this.forward(event, category).catch((err) => {
         logger.warn(
-          { eventId: event.id, type: event.type, err: String(err) },
+          { eventId: event.id, type: event.type, category, err: String(err) },
           "kitchen webhook forward failed",
         );
       });
     }
   }
 
-  private async forward(event: KitchenWebhookEvent): Promise<void> {
+  private async forward(
+    event: KitchenWebhookEvent,
+    category: string | null,
+  ): Promise<void> {
     if (!this.opts.forwardUrl) return;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -59,6 +65,9 @@ export class WebhookDispatcher {
     };
     if (this.opts.forwardToken) {
       headers["X-Forward-Token"] = this.opts.forwardToken;
+    }
+    if (category) {
+      headers["X-Kitchen-Category"] = category;
     }
     const res = await request(this.opts.forwardUrl, {
       method: "POST",

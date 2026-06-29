@@ -144,11 +144,33 @@ export function buildApp(): express.Express {
   app.use(limiter);
 
   app.get("/healthz", (_req, res) => {
+    const enabledCategories: string[] = [];
+    const allCategories = [
+      "invoice",
+      "folder",
+      "file",
+      "conversation",
+      "board",
+      "list",
+      "task",
+      "doc",
+      "embed",
+      "quote",
+      "milestone",
+    ];
+    const hasShared = config.webhookSecrets.length > 0;
+    for (const cat of allCategories) {
+      const override = process.env[`KITCHEN_WEBHOOK_SECRETS_${cat.toUpperCase()}`];
+      if ((override && override.trim().length > 0) || hasShared) {
+        enabledCategories.push(cat);
+      }
+    }
     res.json({
       ok: true,
       service: "kitchen-mcp-server",
       version: "0.1.0",
-      webhookReceiver: config.webhookSecrets.length > 0 ? "enabled" : "disabled",
+      webhookReceiver: hasShared || enabledCategories.length > 0 ? "enabled" : "disabled",
+      webhookCategoriesEnabled: enabledCategories,
     });
   });
 

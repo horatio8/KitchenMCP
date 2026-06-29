@@ -33,4 +33,18 @@ export const config = {
   webhookForwardToken: process.env.KITCHEN_WEBHOOK_FORWARD_TOKEN?.trim() || null,
 } as const;
 
+/**
+ * Resolve the secret list for a given webhook category. Per-category
+ * override env vars (e.g. KITCHEN_WEBHOOK_SECRETS_INVOICE) take
+ * precedence over the shared KITCHEN_WEBHOOK_SECRETS list when present.
+ */
+export function secretsForCategory(category: string | null): string[] {
+  if (category) {
+    const override = process.env[`KITCHEN_WEBHOOK_SECRETS_${category.toUpperCase()}`];
+    const list = parseList(override);
+    if (list.length) return list;
+  }
+  return [...config.webhookSecrets];
+}
+
 export type Config = typeof config;
