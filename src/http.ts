@@ -6,7 +6,7 @@ import { pinoHttp } from "pino-http";
 import { timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-import { handleMcpRequest } from "./server.js";
+import { handleMcpRequest } from "./mcp.js";
 import { buildWebhookRouter } from "./webhooks/receiver.js";
 
 const JSON_MAX = "1mb";
