@@ -80,7 +80,8 @@ async function comment(
   await callKitchen(creds, {
     method: "POST",
     path: `/api/tasks/${encodeURIComponent(taskId)}/comments`,
-    body: { content },
+    // format is required by the Kitchen API — omitting it 422s.
+    body: { content, format: "text" },
   });
 }
 

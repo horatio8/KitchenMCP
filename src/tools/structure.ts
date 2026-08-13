@@ -33,20 +33,32 @@ export function registerStructureTools(reg: ToolRegistry): void {
 
   reg.addCall({
     name: "kitchen_create_board",
-    description: "Create a board.",
+    description:
+      "Create a board. visibility is required by the API — 'private' (you only), 'internal' (team) or 'shared' (team + client).",
     method: "POST",
     inputSchema: {
       title: z.string(),
+      visibility: z
+        .enum(["private", "internal", "shared"])
+        .default("private")
+        .describe("Who can see the board. Required by the Kitchen API."),
       folder_id: z.string().optional(),
     },
-    buildRequest: (input) => ({ path: "/api/boards", body: input }),
+    buildRequest: (input) => ({
+      path: "/api/boards",
+      body: { visibility: "private", ...input },
+    }),
   });
 
   reg.addCall({
     name: "kitchen_update_board",
     description: "Update a board.",
     method: "PATCH",
-    inputSchema: { id: z.string(), title: z.string().optional() },
+    inputSchema: {
+      id: z.string(),
+      title: z.string().optional(),
+      visibility: z.enum(["private", "internal", "shared"]).optional(),
+    },
     buildRequest: ({ id, ...rest }) => ({
       path: `/api/boards/${encodeURIComponent(id)}`,
       body: rest,

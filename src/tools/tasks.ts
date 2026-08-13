@@ -201,15 +201,28 @@ export function registerTaskTools(reg: ToolRegistry): void {
 
   reg.addCall({
     name: "kitchen_create_task_comment",
-    description: "Add a comment to a task.",
+    description:
+      "Add a comment to a task. Optionally attach files by ID (fi_...) — use this to pin the approved creative to the approval record.",
     method: "POST",
     inputSchema: {
       task_id: z.string(),
       content: z.string().min(1),
+      format: z
+        .enum(["text", "html"])
+        .default("text")
+        .describe("Required by the Kitchen API."),
+      attachments: z
+        .array(z.string())
+        .optional()
+        .describe("File IDs (fi_...) to attach to the comment."),
     },
-    buildRequest: ({ task_id, content }) => ({
+    buildRequest: ({ task_id, content, format, attachments }) => ({
       path: `/api/tasks/${encodeURIComponent(task_id)}/comments`,
-      body: { content },
+      body: {
+        content,
+        format: format ?? "text",
+        ...(attachments?.length ? { attachments } : {}),
+      },
     }),
   });
 

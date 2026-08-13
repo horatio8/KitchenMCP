@@ -27,7 +27,13 @@ export function registerRawTool(reg: ToolRegistry): void {
           message: "Path may not contain '//'",
         }),
       query: z.record(z.unknown()).optional(),
-      body: z.unknown().optional(),
+      // z.unknown() renders as an empty JSON Schema, which some MCP
+      // clients drop from the payload entirely. z.any() with an explicit
+      // description survives the round trip.
+      body: z
+        .any()
+        .optional()
+        .describe("JSON request body for POST/PATCH/PUT/DELETE."),
     },
     handler: async (input, ctx) => {
       return callKitchen(ctx.credentials, {

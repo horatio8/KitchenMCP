@@ -106,6 +106,8 @@ async function addComment(
     path: `/api/tasks/${encodeURIComponent(taskId)}/comments`,
     body: {
       content,
+      // Required by the Kitchen API — a comment POST without it 422s.
+      format: "text",
       ...(attachments?.length ? { attachments } : {}),
     },
   });
