@@ -1,0 +1,622 @@
+<title>The Deliverable Workflow</title>
+<style>
+  :root{
+    --ink:#1A1D21; --ink-2:#3D444C; --muted:#6E757D;
+    --paper:#F0EFEA; --card:#F7F6F2; --rule:#D8D6CD;
+    --stamp:#B3282D; --pass:#2F6B4F; --warn:#A8681B;
+    --shadow:0 1px 2px rgba(26,29,33,.06);
+    --serif:"Iowan Old Style","Charter","Bitstream Charter",Georgia,"Times New Roman",serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --measure:68ch;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ink:#E7E5DE; --ink-2:#BFC3C7; --muted:#8E959C;
+      --paper:#15181B; --card:#1D2125; --rule:#31373D;
+      --stamp:#E4676B; --pass:#67B08C; --warn:#D79B4A;
+      --shadow:0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#E7E5DE; --ink-2:#BFC3C7; --muted:#8E959C;
+    --paper:#15181B; --card:#1D2125; --rule:#31373D;
+    --stamp:#E4676B; --pass:#67B08C; --warn:#D79B4A;
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--serif); font-size:17px; line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:var(--measure); margin:0 auto; padding:0 24px}
+  .wide{max-width:960px; margin:0 auto; padding:0 24px}
+
+  h1,h2,h3,h4{text-wrap:balance; line-height:1.15; margin:0}
+  h1{font-size:clamp(2.1rem,5.5vw,3.1rem); font-weight:700; letter-spacing:-.02em}
+  h2{font-size:clamp(1.5rem,3vw,1.9rem); font-weight:700; letter-spacing:-.01em}
+  h3{font-size:1.16rem; font-weight:700}
+  p{margin:0}
+  a{color:var(--stamp)}
+
+  .eyebrow{
+    font-family:var(--mono); font-size:.7rem; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted);
+  }
+  code,.m{font-family:var(--mono); font-size:.86em}
+  code{background:var(--card); border:1px solid var(--rule); border-radius:3px; padding:.06em .32em}
+
+  /* ---------- masthead ---------- */
+  header.mast{
+    border-bottom:2px solid var(--ink); padding:64px 0 30px; margin-bottom:0;
+  }
+  .mast .wrap{display:flex; flex-direction:column; gap:18px}
+  .mast .sub{font-size:1.16rem; color:var(--ink-2); max-width:56ch}
+  .credit{
+    display:flex; flex-wrap:wrap; gap:8px 20px; font-family:var(--mono);
+    font-size:.72rem; letter-spacing:.06em; color:var(--muted);
+    border-top:1px solid var(--rule); padding-top:14px; text-transform:uppercase;
+  }
+
+  .maxim{
+    border-left:3px solid var(--stamp); padding:14px 0 14px 20px; margin:42px 0;
+    font-size:1.2rem; line-height:1.45;
+  }
+  .maxim b{color:var(--stamp); font-weight:700}
+
+  section{padding:52px 0; border-bottom:1px solid var(--rule)}
+  section:last-of-type{border-bottom:0}
+  .shead{display:flex; flex-direction:column; gap:8px; margin-bottom:26px}
+  .stack{display:flex; flex-direction:column; gap:18px}
+
+  /* ---------- failure table ---------- */
+  table{border-collapse:collapse; width:100%; font-size:.94rem}
+  .scroll{overflow-x:auto; -webkit-overflow-scrolling:touch}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--rule); vertical-align:top}
+  th{
+    font-family:var(--mono); font-size:.68rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--muted); font-weight:400;
+    border-bottom:1px solid var(--ink);
+  }
+  td.m{font-family:var(--mono); font-size:.82rem; white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+
+  /* ---------- lifecycle ---------- */
+  .flow{display:flex; align-items:stretch; gap:0; min-width:min-content; padding-bottom:8px}
+  .node{
+    flex:0 0 auto; background:var(--card); border:1px solid var(--rule);
+    padding:9px 13px; font-family:var(--mono); font-size:.74rem;
+    display:flex; flex-direction:column; gap:3px; min-width:118px;
+  }
+  .node .n{font-size:.6rem; color:var(--muted); letter-spacing:.08em}
+  .node.gate{border-color:var(--stamp); border-width:1.5px}
+  .arrow{
+    flex:0 0 auto; align-self:center; padding:0 7px; color:var(--muted);
+    font-family:var(--mono); font-size:.8rem;
+  }
+  .arrow b{color:var(--stamp); font-weight:400}
+  .side{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px}
+  .chip{
+    font-family:var(--mono); font-size:.72rem; padding:5px 11px;
+    border:1px dashed var(--rule); color:var(--muted);
+  }
+
+  /* ---------- gates ---------- */
+  .gates{display:flex; flex-direction:column; gap:0}
+  .gate{
+    display:grid; grid-template-columns:64px 1fr; gap:0 22px;
+    padding:26px 0; border-top:1px solid var(--rule);
+  }
+  .gate:first-child{border-top:2px solid var(--ink)}
+  .gid{
+    font-family:var(--mono); font-size:1.5rem; font-weight:400; color:var(--stamp);
+    line-height:1; padding-top:3px; font-variant-numeric:tabular-nums;
+  }
+  .gbody{display:flex; flex-direction:column; gap:11px; min-width:0}
+  .gmeta{
+    font-family:var(--mono); font-size:.72rem; color:var(--muted);
+    display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center;
+  }
+  .gmeta .tr{color:var(--ink-2)}
+  .owner{border:1px solid var(--rule); padding:2px 8px; background:var(--card)}
+  ul.checks{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px}
+  ul.checks li{
+    position:relative; padding-left:26px; font-size:.96rem; line-height:1.5;
+  }
+  ul.checks li::before{
+    content:"☐"; position:absolute; left:0; top:-1px;
+    font-family:var(--mono); color:var(--stamp); font-size:.95rem;
+  }
+  ul.checks li.adv::before{content:"◇"; color:var(--muted)}
+  ul.checks li.adv{color:var(--muted)}
+  .note{
+    background:var(--card); border-left:2px solid var(--warn);
+    padding:11px 15px; font-size:.93rem; color:var(--ink-2);
+  }
+  .note b{color:var(--ink)}
+
+  /* ---------- stamps ---------- */
+  .jgrid{display:grid; gap:20px; grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .jur{
+    background:var(--card); border:1px solid var(--rule); padding:22px;
+    display:flex; flex-direction:column; gap:13px;
+  }
+  .stamp{
+    border:2px solid var(--stamp); color:var(--stamp); padding:11px 13px;
+    font-family:var(--mono); font-size:.8rem; text-align:center;
+    letter-spacing:.04em; transform:rotate(-1.1deg); background:transparent;
+  }
+  .jur ul{margin:0; padding-left:17px; font-size:.92rem; display:flex; flex-direction:column; gap:6px}
+  .jur ul li::marker{color:var(--muted)}
+
+  /* ---------- matrix ---------- */
+  .pill{
+    font-family:var(--mono); font-size:.66rem; letter-spacing:.06em;
+    padding:2px 8px; border:1px solid currentColor; text-transform:uppercase;
+    white-space:nowrap;
+  }
+  .p-ok{color:var(--pass)} .p-no{color:var(--stamp)} .p-if{color:var(--warn)}
+
+  /* ---------- metadata block ---------- */
+  pre{
+    background:var(--card); border:1px solid var(--rule); padding:18px;
+    overflow-x:auto; font-family:var(--mono); font-size:.79rem; line-height:1.65;
+    margin:0; color:var(--ink-2);
+  }
+  pre .k{color:var(--stamp)}
+  pre .c{color:var(--muted)}
+
+  /* ---------- runbook ---------- */
+  ol.run{counter-reset:s; list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:12px}
+  ol.run li{counter-increment:s; position:relative; padding-left:38px; font-size:.98rem}
+  ol.run li::before{
+    content:counter(s); position:absolute; left:0; top:1px; width:24px;
+    font-family:var(--mono); font-size:.74rem; color:var(--stamp);
+    border:1px solid var(--rule); text-align:center; line-height:19px; height:21px;
+    font-variant-numeric:tabular-nums;
+  }
+
+  footer{padding:44px 0 72px; color:var(--muted); font-size:.9rem}
+  footer .stack{gap:12px}
+  hr.thin{border:0; border-top:1px solid var(--rule); margin:0}
+  @media (max-width:560px){
+    body{font-size:16px}
+    .gate{grid-template-columns:1fr; gap:12px}
+    .gid{font-size:1.15rem}
+  }
+</style>
+
+<header class="mast">
+  <div class="wrap">
+    <span class="eyebrow">Teller · Operating manual</span>
+    <h1>The Deliverable Workflow</h1>
+    <p class="sub">How every client deliverable moves from inception to deployment — the states it passes through, the gates it must clear, and how Kitchen holds the record that survives a dispute, an audit or a takedown request.</p>
+    <div class="credit">
+      <span>14 states</span><span>7 gates</span><span>12 deliverable types</span><span>AU · US · NZ</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="maxim">
+    <b>Rework is cheap. A bad approval is not.</b><br>
+    Sending work backwards is always allowed and never gated. Moving it forwards is gated.
+  </div>
+</div>
+
+<section>
+  <div class="wrap stack">
+    <div class="shead">
+      <span class="eyebrow">Why this exists</span>
+      <h2>Eight ways the work goes wrong</h2>
+    </div>
+    <p>Agency work fails in a small number of expensive, repeatable ways. Every one is a process failure, not a talent failure — so every one gets a gate.</p>
+  </div>
+  <div class="wide" style="margin-top:24px">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Failure</th><th>What it costs</th><th>Closed by</th></tr></thead>
+        <tbody>
+          <tr><td>Work starts before the brief is agreed</td><td>Rework, scope disputes, unbillable hours</td><td class="m">G1</td></tr>
+          <tr><td>Nobody knows what state something is in</td><td>Status meetings that produce no decisions</td><td class="m">Board</td></tr>
+          <tr><td>"Approval" was a nod on a phone call</td><td>The client says they never approved it</td><td class="m">G5</td></tr>
+          <tr><td>An ad ships with no authorisation statement</td><td>AEC takedown mid-flight; NZ fines to $40,000</td><td class="m">G4</td></tr>
+          <tr><td>An attack claim ships without a source</td><td>The claim becomes the story</td><td class="m">G2 · G4</td></tr>
+          <tr><td>Verification wasn't started until launch week</td><td>The flight slips by a week</td><td class="m">G2</td></tr>
+          <tr><td>Approved version ≠ deployed version</td><td>Nobody can prove which one the client saw</td><td class="m">G6</td></tr>
+          <tr><td>No retained copy of what ran</td><td>You cannot answer a complaint or a return</td><td class="m">G4 · G7</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap shead">
+    <span class="eyebrow">Lifecycle</span>
+    <h2>Eleven live states, three side states</h2>
+  </div>
+  <div class="wide">
+    <div class="scroll">
+      <div class="flow">
+        <div class="node"><span class="n">01</span>intake</div>
+        <span class="arrow"><b>G1</b>→</span>
+        <div class="node gate"><span class="n">02</span>scoped</div>
+        <span class="arrow"><b>G2</b>→</span>
+        <div class="node gate"><span class="n">03</span>in_production</div>
+        <span class="arrow">→</span>
+        <div class="node"><span class="n">04</span>internal_review</div>
+        <span class="arrow"><b>G3</b>→</span>
+        <div class="node gate"><span class="n">05</span>compliance_review</div>
+        <span class="arrow"><b>G4</b>→</span>
+        <div class="node gate"><span class="n">06</span>client_review</div>
+        <span class="arrow"><b>G5</b>→</span>
+        <div class="node gate"><span class="n">07</span>approved</div>
+        <span class="arrow"><b>G6</b>→</span>
+        <div class="node gate"><span class="n">08</span>deployed</div>
+        <span class="arrow"><b>G7</b>→</span>
+        <div class="node gate"><span class="n">09</span>verified</div>
+        <span class="arrow">→</span>
+        <div class="node"><span class="n">10</span>archived</div>
+      </div>
+    </div>
+    <div class="side">
+      <span class="chip">changes_requested — rework hub, remembers where it came from</span>
+      <span class="chip">blocked — external dependency</span>
+      <span class="chip">cancelled — will not ship</span>
+      <span class="chip">scheduled — booked ahead of its flight</span>
+    </div>
+  </div>
+  <div class="wrap stack" style="margin-top:26px">
+    <p>Backwards is always open. Any of <code>internal_review</code>, <code>compliance_review</code>, <code>client_review</code>, <code>approved</code>, <code>scheduled</code> and <code>deployed</code> can drop to <code>changes_requested</code>. A deployed item going backwards is an incident — treat it as one.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap shead">
+    <span class="eyebrow">The gates</span>
+    <h2>A checklist plus a signature</h2>
+  </div>
+  <div class="wrap stack" style="margin-bottom:8px">
+    <p>The signature is a Kitchen comment: attributed, timestamped, never edited. A deliverable cannot move forward through a gate without one. Diamond items <span class="m">◇</span> are advisory; the rest are hard.</p>
+  </div>
+  <div class="wide">
+    <div class="gates">
+
+      <article class="gate">
+        <div class="gid">G1</div>
+        <div class="gbody">
+          <h3>Scope gate</h3>
+          <div class="gmeta"><span class="owner">Producer</span><span class="tr">intake → scoped</span></div>
+          <ul class="checks">
+            <li>A written brief exists and names the audience, the message and the one action it should drive</li>
+            <li>Deliverable type and workstream are set</li>
+            <li>A due date exists and is achievable</li>
+            <li>A named producer is assigned</li>
+            <li>Jurisdiction is recorded</li>
+            <li class="adv">Work is inside an accepted quote or retainer, or a quote has been raised</li>
+          </ul>
+          <div class="note"><b>Why jurisdiction this early:</b> it decides what text must appear in the artwork. Discovering it at G4 means a redesign.</div>
+        </div>
+      </article>
+
+      <article class="gate">
+        <div class="gid">G2</div>
+        <div class="gbody">
+          <h3>Production-ready gate</h3>
+          <div class="gmeta"><span class="owner">Producer</span><span class="tr">scoped → in_production</span></div>
+          <ul class="checks">
+            <li>All inputs on hand: copy direction, assets, data, brand profile</li>
+            <li>Any factual or negative claim has a cited, checkable source attached</li>
+            <li class="adv">Destination accounts and pages exist and are accessible</li>
+          </ul>
+          <div class="note"><b>Start advertiser verification here.</b> Meta political authorisation, Google election-ads verification and X verification all take days. They gate launch, not drafting. Starting them at G4 costs a week.</div>
+        </div>
+      </article>
+
+      <article class="gate">
+        <div class="gid">G3</div>
+        <div class="gbody">
+          <h3>Internal QA gate</h3>
+          <div class="gmeta"><span class="owner">Reviewer</span><span class="tr">internal_review → compliance_review</span></div>
+          <ul class="checks">
+            <li>Output answers the brief — message, audience, action</li>
+            <li>Platform spec met: character counts <em>counted</em>, not estimated; aspect ratios; file types; durations</li>
+            <li>Brand profile respected: palette, type hierarchy, logo treatment</li>
+            <li>Copy proofread; names, dates, times, venues and URLs verified against source</li>
+            <li>Every link resolves and carries correct tracking parameters</li>
+            <li>The reviewer is not the producer</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="gate">
+        <div class="gid">G4</div>
+        <div class="gbody">
+          <h3>Compliance gate</h3>
+          <div class="gmeta"><span class="owner">Compliance</span><span class="tr">compliance_review → client_review</span><span class="tr">skipped for research · strategy-doc · internal</span></div>
+          <ul class="checks">
+            <li>Authorisation, disclaimer or promoter statement present, correct and prominent for the jurisdiction</li>
+            <li>Paying entity confirmed and matching the platform-verified funding entity</li>
+            <li>Political advertising permitted on every destination platform</li>
+            <li>Advertiser verification complete on each platform</li>
+            <li>Special ad category declared where the platform requires it</li>
+            <li>Every negative or comparative claim carries an evidence reference</li>
+            <li>AI-generated or AI-altered media depicting real people, places or events is disclosed</li>
+            <li>Targeting is legal for the category and geographically fits the district</li>
+            <li>Flight dates clear any blackout, freeze or pre-poll restriction</li>
+            <li>A copy of the final creative is retained for the statutory record period</li>
+          </ul>
+          <div class="note">This gate runs <b>automatically</b> the moment a card enters the Compliance column.</div>
+        </div>
+      </article>
+
+      <article class="gate">
+        <div class="gid">G5</div>
+        <div class="gbody">
+          <h3>Client sign-off gate</h3>
+          <div class="gmeta"><span class="owner">Client approver</span><span class="tr">client_review → approved</span><span class="tr">skipped for internal</span></div>
+          <ul class="checks">
+            <li>The approver is the person with authority to bind the client</li>
+            <li>Approval is explicit and in writing — never inferred from silence</li>
+            <li>The approval names the exact version being approved</li>
+            <li>Approval covers placement, spend and flight dates, not just creative</li>
+            <li>Any conditions attached to the approval are recorded and actioned</li>
+          </ul>
+          <div class="note"><b>The most expensive mistake in the whole workflow</b> is treating "looks good" in a group thread as an approval. It names no version, binds nobody and covers no spend. Record it properly or it did not happen.</div>
+        </div>
+      </article>
+
+      <article class="gate">
+        <div class="gid">G6</div>
+        <div class="gbody">
+          <h3>Deployment gate</h3>
+          <div class="gmeta"><span class="owner">Deployer</span><span class="tr">approved → deployed</span></div>
+          <ul class="checks">
+            <li>What is being deployed is byte-identical to what was approved</li>
+            <li>Media is a real hosted file the platform can fetch — not a share link or preview page</li>
+            <li>Budget, bid strategy and schedule match the approved spend</li>
+            <li>Pixel and conversion tracking are live and firing</li>
+            <li>A named person can pause or pull this within minutes</li>
+          </ul>
+          <div class="note"><b>The share-link trap:</b> a Descript view URL is an HTML page, not a video. Facebook reports a problem with the file, Instagram throws a container error, YouTube rejects <code>text/html</code>. If a clip has no exported MP4, it has no post.</div>
+        </div>
+      </article>
+
+      <article class="gate">
+        <div class="gid">G7</div>
+        <div class="gbody">
+          <h3>Post-deployment verification</h3>
+          <div class="gmeta"><span class="owner">Deployer</span><span class="tr">deployed → verified</span></div>
+          <ul class="checks">
+            <li>Asset confirmed live and rendering correctly on each destination</li>
+            <li>The authorisation statement is visible on the live placement</li>
+            <li>Delivery has begun — impressions or sends registering as expected</li>
+            <li>Live screenshot or permalink captured into the deliverable record</li>
+          </ul>
+          <div class="note">The gate everyone skips, and everyone regrets skipping.</div>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap shead">
+    <span class="eyebrow">Jurisdiction</span>
+    <h2>What must appear in the artwork</h2>
+  </div>
+  <div class="wide">
+    <div class="jgrid">
+      <div class="jur">
+        <span class="eyebrow">Australia · authorisation statement</span>
+        <div class="stamp">AUTHORISED BY {name},<br>{entity}, {town}</div>
+        <ul>
+          <li>Required for paid electoral advertising, or anything communicated by or for a disclosure entity</li>
+          <li>Entity: name plus the town or city it is based in</li>
+          <li>Natural person on printed matter: name plus <em>full street address</em></li>
+          <li>Paid creator content carrying electoral matter must also be authorised</li>
+          <li>State elections layer their own commission's rules on top</li>
+        </ul>
+      </div>
+      <div class="jur">
+        <span class="eyebrow">United States · disclaimer</span>
+        <div class="stamp">PAID FOR BY {entity}</div>
+        <ul>
+          <li>Must match the platform-verified funding entity — for client work it names the client's committee, not the agency</li>
+          <li>Meta ads live in the public Ad Library for seven years</li>
+          <li><em>Final-week freeze:</em> new political ads are blocked in the last week; only ads with a prior impression keep serving. Pre-load closing creative</li>
+          <li>Google targeting capped at age, gender and postal code</li>
+        </ul>
+      </div>
+      <div class="jur">
+        <span class="eyebrow">New Zealand · promoter statement</span>
+        <div class="stamp">PROMOTED BY {name},<br>{address}</div>
+        <ul>
+          <li>Required at all times, not only during the regulated period</li>
+          <li>For paid social the statement goes in the ad itself</li>
+          <li>Must be clearly displayed — statements set too small draw complaints</li>
+          <li>Running without one risks a fine up to NZ$40,000</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="wide" style="margin-top:34px">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Platform</th><th>Paid political</th><th>Verification</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="m">meta</td><td><span class="pill p-ok">Allowed</span></td><td>Required</td><td>Ad Library 7yr · US final-week freeze · AI-media labels</td></tr>
+          <tr><td class="m">google · youtube</td><td><span class="pill p-ok">Allowed</span></td><td>Required</td><td>Targeting limited to age, gender, postal code</td></tr>
+          <tr><td class="m">x</td><td><span class="pill p-ok">Allowed</span></td><td>Required</td><td>Geo-restricted to registered jurisdictions</td></tr>
+          <tr><td class="m">snapchat</td><td><span class="pill p-if">Conditional</span></td><td>Required</td><td>Useful under-35 GOTV reach</td></tr>
+          <tr><td class="m">tiktok</td><td><span class="pill p-no">Banned</span></td><td>—</td><td>Organic only; paid creator political content also prohibited</td></tr>
+          <tr><td class="m">linkedin</td><td><span class="pill p-no">Banned</span></td><td>—</td><td>Political advertising not permitted</td></tr>
+          <tr><td class="m">email · sms · print · web</td><td><span class="pill p-ok">Allowed</span></td><td>—</td><td>Electoral law still applies</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap shead">
+    <span class="eyebrow">The backbone</span>
+    <h2>How this lives in Kitchen</h2>
+  </div>
+  <div class="wrap stack">
+    <p>Kitchen holds all of it. No second system, no spreadsheet.</p>
+  </div>
+  <div class="wide" style="margin-top:22px">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Workflow concept</th><th>Kitchen primitive</th></tr></thead>
+        <tbody>
+          <tr><td>Client engagement</td><td class="m">Board</td></tr>
+          <tr><td>Lifecycle state</td><td class="m">List (board column)</td></tr>
+          <tr><td>Deliverable</td><td class="m">Task</td></tr>
+          <tr><td>Structured metadata</td><td class="m">Fenced block in the description</td></tr>
+          <tr><td>Gate pass · approval · compliance report · state change</td><td class="m">Task comment</td></tr>
+          <tr><td>Creative and assets</td><td class="m">Files</td></tr>
+          <tr><td>Flight date, election day</td><td class="m">Milestone</td></tr>
+          <tr><td>Client feedback thread</td><td class="m">Conversation</td></tr>
+          <tr><td>Commercials</td><td class="m">Quote → Invoice</td></tr>
+          <tr><td>Automation triggers</td><td class="m">Webhooks</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="wrap stack" style="margin-top:32px">
+    <h3>The metadata block</h3>
+    <p>Kitchen has no custom fields, so structured data lives in a fenced block at the end of the description. Machine-written, machine-parsed, human-readable. The brief above it is yours; the block is the system's. Editing one never disturbs the other.</p>
+  </div>
+  <div class="wide" style="margin-top:16px">
+<pre><span class="c">## Brief</span>
+
+<span class="c">**Audience:** Swing voters 35–64, cost-of-living pressured.
+**One action:** Click through to the petition page.</span>
+
+```deliverable
+<span class="k">type</span>: paid-ad
+<span class="k">workstream</span>: paid-media
+<span class="k">state</span>: in_production
+<span class="k">jurisdiction</span>: AU
+<span class="k">region</span>: SA
+<span class="k">platforms</span>: meta, google
+<span class="k">paid</span>: true
+<span class="k">electoralMatter</span>: true
+<span class="k">authorisationText</span>: Authorised by J Flynn, Teller Consulting, Adelaide
+<span class="k">payingEntity</span>: Example Campaign Committee
+<span class="k">verifiedPlatforms</span>: meta
+<span class="k">specialCategoryDeclared</span>: true
+<span class="k">flightStart</span>: 2026-09-01
+<span class="k">electionDate</span>: 2026-11-03
+<span class="k">recordRetained</span>: true
+<span class="k">version</span>: v3
+```</pre>
+  </div>
+  <div class="wrap stack" style="margin-top:32px">
+    <h3>Board columns</h3>
+    <p>Existing column names are recognised automatically. <code>Drafting</code>, <code>Doing</code> and <code>WIP</code> all map to <code>in_production</code>; <code>With Client</code> maps to <code>client_review</code>. The SANDBOX board's five columns map with no renaming at all.</p>
+    <h3 style="margin-top:12px">The audit trail</h3>
+    <p>Four comment types, each machine-detectable by its marker: <code>GATE-PASS</code>, <code>CLIENT-APPROVAL</code>, <code>COMPLIANCE-CHECK</code>, <code>STATE-CHANGE</code>. Nothing edits or deletes a comment. The history is the record.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap shead">
+    <span class="eyebrow">Software</span>
+    <h2>Eleven tools, and what they refuse to do</h2>
+  </div>
+  <div class="wide">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Tool</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td class="m">workflow_describe</td><td>The whole model: states, gates and checks, workstreams, types, platform matrix</td></tr>
+          <tr><td class="m">workflow_next_steps</td><td>Given a state, the legal moves and which gate guards each</td></tr>
+          <tr><td class="m">workflow_provision_board</td><td>Creates a column per state, reusing ones that already map. Idempotent</td></tr>
+          <tr><td class="m">workflow_create_deliverable</td><td>New deliverable in Intake with its metadata block</td></tr>
+          <tr><td class="m">workflow_get_deliverable</td><td>State, metadata, gates signed, approval status, audit trail, what remains</td></tr>
+          <tr><td class="m">workflow_update_deliverable</td><td>Update metadata without changing state</td></tr>
+          <tr><td class="m">workflow_sign_gate</td><td>Record a gate signature</td></tr>
+          <tr><td class="m">workflow_advance</td><td>Move state — refuses to cross an unsigned gate</td></tr>
+          <tr><td class="m">workflow_record_approval</td><td>Record a binding client sign-off</td></tr>
+          <tr><td class="m">workflow_compliance_check</td><td>Run the engine on a deliverable and post the report</td></tr>
+          <tr><td class="m">workflow_compliance_preview</td><td>Run it on ad-hoc values while drafting, before a card exists</td></tr>
+          <tr><td class="m">workflow_board_status</td><td>Counts per state, overdue, awaiting client, awaiting compliance, blocked</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="wrap stack" style="margin-top:30px">
+    <h3>Enforcement, precisely</h3>
+    <p><code>workflow_advance</code> refuses when the transition is not legal in the state machine — and tells you what is; when the guarding gate has no recorded sign-off; and when the target is <code>approved</code> with no <code>CLIENT-APPROVAL</code> record.</p>
+    <div class="note"><code>force: true</code> overrides — and writes <b>"FORCED past G4 without a recorded sign-off"</b> permanently into the audit trail. The escape hatch exists, and it leaves a mark.</div>
+    <h3 style="margin-top:14px">Automation</h3>
+    <p>Driven by the Kitchen webhooks already receiving on all thirteen categories.</p>
+  </div>
+  <div class="wide" style="margin-top:16px">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Event</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td>Card enters Compliance</td><td>Runs the compliance engine, posts the report</td></tr>
+          <tr><td>Card reaches Approved with no approval record</td><td>Posts a warning</td></tr>
+          <tr><td>Card deployed over a <span class="m">LIKELY REJECTED</span> verdict</td><td>Posts a warning</td></tr>
+          <tr><td>Client comment reads like an approval</td><td>Quotes it back, names the current version, asks for formalisation</td></tr>
+          <tr><td>Task falls due</td><td>Posts what state it is stuck in and what remains</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="wrap stack" style="margin-top:24px">
+    <p>Automation observes, checks and annotates. <b>It never moves a deliverable.</b> Humans transition; the machine keeps the record honest.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap shead">
+    <span class="eyebrow">Runbook</span>
+    <h2>Standing up a client, and running one deliverable</h2>
+  </div>
+  <div class="wrap stack">
+    <h3>New client</h3>
+    <ol class="run">
+      <li>Provision the board — thirteen columns</li>
+      <li>Create milestones for election day and each flight window</li>
+      <li>Add the client's approver as a Kitchen client user on the board</li>
+      <li>Start advertiser verification on every platform in the plan, before any creative exists</li>
+      <li>Record the authorisation statement and paying entity once; reuse on every deliverable</li>
+    </ol>
+    <h3 style="margin-top:26px">One deliverable</h3>
+    <ol class="run">
+      <li>Create it — brief, type, workstream, jurisdiction, due date</li>
+      <li>Sign G1, advance to <code>scoped</code></li>
+      <li>Gather inputs and evidence; sign G2, advance to <code>in_production</code></li>
+      <li>Produce, then advance to <code>internal_review</code></li>
+      <li>The reviewer — not the producer — signs G3</li>
+      <li>The compliance report posts itself. Clear the blockers, re-run, sign G4</li>
+      <li>Client approves in writing, record the approval, sign G5</li>
+      <li>Sign G6 and deploy</li>
+      <li>Confirm live, capture the permalink, sign G7, archive</li>
+    </ol>
+    <h3 style="margin-top:26px">Weekly</h3>
+    <ol class="run">
+      <li>Anything in <code>changes_requested</code> beyond a week is a scoping failure — re-brief it</li>
+      <li>Anything <code>deployed</code> but not <code>verified</code> is an unclosed loop</li>
+      <li>Check verification status on every platform with a flight in the next fortnight</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap stack">
+    <hr class="thin">
+    <p><b>Scope and limits.</b> This is operational guidance encoded as software, not legal advice. Jurisdiction-specific filing questions go to counsel.</p>
+    <p>The compliance engine is warn-only by mandate. It returns a verdict; a human decides what ships. <span class="m">LIKELY_REJECTED</span> means "this will be taken down or rejected", not "the tool refused".</p>
+    <p>Policy state is mid-2026. Platform political-ad policy changes often — for policy-sensitive launches, re-verify against current published policy before relying on the matrix. The engine checks what it can see; it cannot tell you whether a claim is true, only whether a source is attached.</p>
+  </div>
+</footer>
