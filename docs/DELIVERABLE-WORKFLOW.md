@@ -223,6 +223,21 @@ Promoted by {name}, {address}
 - Must be clearly displayed — statements that are too small draw complaints
 - Running without one risks a fine up to **NZ$40,000**
 
+### Australian states and territories
+
+State elections are governed by their own Acts and their own commissions. **A valid Commonwealth authorisation is not automatically valid at state level** — this is the most common way an authorisation fails, because the federal form is the one everyone has in a template.
+
+| Region | Act | PO Box? | Notes |
+|---|---|---|---|
+| **SA** | Electoral Act 1985 s112 (ECSA) | **Prohibited** | Name + **street address**. Party name or registered abbreviation for endorsed candidates. Independents may use a PO Box only with the Commissioner's approval, plus their suburb at the end of the ad. Small items exempt. Penalty to $5,000 / $10,000. |
+| **NSW** | Electoral Act 2017 (NSWEC) | **Prohibited** | Name + street address. Must not appear to be an official NSWEC communication. Election-day material must be registered. |
+| **VIC** | Electoral Act 2002 s83 (VEC) | **Allowed** | Street address or PO Box — but **never an email address**. Authoriser must be 18+. Obligation is **ongoing**, not only during the election period. |
+| **QLD** | Electoral Act 1992 (ECQ) | **Allowed** | Residential, business or PO Box; must be contactable there. HTV cards need ECQ approval. |
+| **WA** | Electoral Act 1907 (WAEC) | *Unverified* | Required once writs issue. Act substantially amended Nov 2023 — confirm the current provision. |
+| **TAS · ACT · NT** | Own Acts | *Unverified* | Confirm with the commission. |
+
+The engine checks the address form mechanically: a PO Box in an SA or NSW authorisation is a blocker, an email address in a Victorian one is a blocker, and a town-only authorisation in SA is flagged as too thin. Where a region is marked *unverified*, the engine says so rather than encoding a guess — a fabricated legal rule is worse than an admitted gap.
+
 ### Platform permission matrix
 
 | Platform | Paid political | Verification | Notes |
@@ -306,6 +321,36 @@ version: v3
 
 The brief above the block is yours. The block is the system's. Editing the brief never disturbs the block, and vice versa.
 
+### The evidence register
+
+Every negative or comparative claim needs a source someone can check. The register lives in a **second** fenced block on the same task, so the claim and its backing travel together:
+
+````
+```evidence
+id: E1
+claim: Missed 22% of floor votes in the 2025 session
+source: SA Hansard, 2025 session voting record, p.412
+url: https://hansard.example.sa.gov.au/2025
+archived: https://web.archive.org/web/2026/hansard
+status: verified
+verifiedBy: James Flynn
+--
+id: E2
+claim: Has taken donations from developers
+status: unsourced
+```
+````
+
+The compliance check draws its claims from this register, so the two can never disagree. `E2` above is a blocker.
+
+Three rules the register enforces:
+
+- **Never fabricate a source.** If a claim cannot be backed, downgrade the ad or drop the claim. Never launder an unbacked claim into a question — *"why won't he say whether…"* is the same claim wearing a hat.
+- **Attaching a URL is not verification.** `verified` means a named person checked the source actually says what the claim says.
+- **Archive it.** A live URL with no archived copy is flagged. The page that disappears is always the one you needed.
+
+> Because the description now carries two machine blocks, every write goes through a single compose step. Writing the metadata alone would silently drop the register — that failure is covered by round-trip tests in both directions.
+
 ### The audit trail
 
 Four comment types, each machine-detectable by its marker:
@@ -350,10 +395,25 @@ Built into the Kitchen MCP server. Eleven tools, all prefixed `workflow_`.
 | `workflow_compliance_check` | Run the engine on a deliverable and post the report |
 | `workflow_compliance_preview` | Run it on ad-hoc values while drafting, before a card exists |
 
-### Oversight
+### Recipes and reference
+| Tool | Does |
+|---|---|
+| `workflow_recipe` | What "done" looks like for a type: required metadata, what the brief must answer, assets with specs, type-specific QA, and the traps that kill that type. `as_brief_scaffold: true` returns a ready-to-fill brief |
+| `workflow_au_state_rules` | The AU state/territory authorisation matrix |
+
+### Evidence
+| Tool | Does |
+|---|---|
+| `workflow_get_evidence` | Read the claims register and its audit |
+| `workflow_set_evidence` | Replace the register — a replace, not an append |
+| `workflow_audit_evidence` | Audit a claim set without touching Kitchen |
+
+### Oversight and records
 | Tool | Does |
 |---|---|
 | `workflow_board_status` | Portfolio view: counts per state, overdue, awaiting client, awaiting compliance, blocked |
+| `workflow_status_report` | Internal standup report and a client-facing update, from one board read |
+| `workflow_record_pack` | The retention artefact for one deliverable — and the gaps in its own record |
 
 ### Enforcement, precisely
 
@@ -377,6 +437,20 @@ Opt-in via `WORKFLOW_AUTOMATION=true`. Driven by the Kitchen webhooks already re
 | Task falls due | Posts what state it is stuck in and what remains |
 
 Automation **observes, checks and annotates. It never moves a deliverable.** Humans transition; the machine keeps the record honest.
+
+---
+
+## 8a. The skill
+
+`skills/deliverable-workflow/` packages all of this so it triggers on natural phrasing — *"add this to the pipeline"*, *"what's waiting on the client"*, *"the client approved it"*, *"is this ready to run"*, *"pull the record for that ad"* — rather than requiring anyone to remember nineteen tool names.
+
+Install it alongside the other synced skills. It carries the operating principles that matter most under pressure:
+
+1. **The gates are the product.** Anyone can make an ad. The client pays for an ad that is correct, legal, approved and documented.
+2. **Warn loudly, never block silently.** Verdicts are recommendations with remedies attached.
+3. **Never invent a legal fact.** Not an authorisation, not an entity, not a source, not a state rule.
+4. **Automation observes; humans transition.**
+5. **Record it while people still remember.**
 
 ---
 

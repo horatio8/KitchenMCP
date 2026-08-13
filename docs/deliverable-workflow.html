@@ -193,7 +193,7 @@
     <h1>The Deliverable Workflow</h1>
     <p class="sub">How every client deliverable moves from inception to deployment — the states it passes through, the gates it must clear, and how Kitchen holds the record that survives a dispute, an audit or a takedown request.</p>
     <div class="credit">
-      <span>14 states</span><span>7 gates</span><span>12 deliverable types</span><span>AU · US · NZ</span>
+      <span>14 states</span><span>7 gates</span><span>12 deliverable types</span><span>AU · US · NZ + 8 states</span><span>19 tools</span>
     </div>
   </div>
 </header>
@@ -443,6 +443,31 @@
       </div>
     </div>
   </div>
+  <div class="wide" style="margin-top:36px">
+    <div class="shead" style="margin-bottom:16px">
+      <span class="eyebrow">The trap</span>
+      <h3 style="font-size:1.3rem">A federal authorisation is not a state authorisation</h3>
+    </div>
+    <div class="wrap" style="padding:0; max-width:none">
+      <p style="margin-bottom:18px">State elections run under their own Acts and their own commissions, and the address rules genuinely differ. The federal form is the one sitting in everybody's template, which is exactly why it is the one that fails.</p>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Region</th><th>Act</th><th>PO Box</th><th>Requirement</th></tr></thead>
+        <tbody>
+          <tr><td class="m">SA</td><td>Electoral Act 1985 s112</td><td><span class="pill p-no">Prohibited</span></td><td>Name + <b>street address</b>. Party name or abbreviation for endorsed candidates. Small items exempt. Penalty to $5,000 / $10,000</td></tr>
+          <tr><td class="m">NSW</td><td>Electoral Act 2017</td><td><span class="pill p-no">Prohibited</span></td><td>Name + street address. Must not look like an official NSWEC communication</td></tr>
+          <tr><td class="m">VIC</td><td>Electoral Act 2002 s83</td><td><span class="pill p-ok">Allowed</span></td><td>Street address or PO Box, never an email. Authoriser 18+. Obligation runs <b>outside</b> the election period too</td></tr>
+          <tr><td class="m">QLD</td><td>Electoral Act 1992</td><td><span class="pill p-ok">Allowed</span></td><td>Residential, business or PO Box; must be contactable there</td></tr>
+          <tr><td class="m">WA</td><td>Electoral Act 1907</td><td><span class="pill p-if">Unverified</span></td><td>Required once writs issue. Act amended Nov 2023 — confirm the current provision</td></tr>
+          <tr><td class="m">TAS · ACT · NT</td><td>Own Acts</td><td><span class="pill p-if">Unverified</span></td><td>Confirm with the commission</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="wrap" style="padding:0; max-width:none; margin-top:18px">
+      <div class="note"><b>The engine checks the address form mechanically.</b> A PO Box in an SA or NSW authorisation is a blocker. An email address in a Victorian one is a blocker. A town-only authorisation in SA — perfectly valid federally — is flagged as too thin. Where a region is marked unverified the engine says so rather than encoding a guess: a fabricated legal rule is worse than an admitted gap.</div>
+    </div>
+  </div>
   <div class="wide" style="margin-top:34px">
     <div class="scroll">
       <table>
@@ -518,6 +543,31 @@
 ```</pre>
   </div>
   <div class="wrap stack" style="margin-top:32px">
+    <h3>The evidence register</h3>
+    <p>Every negative or comparative claim needs a source someone can check. The register lives in a second fenced block on the same task, so the claim and its backing travel together. The compliance check draws its claims from here, so the two can never disagree.</p>
+  </div>
+  <div class="wide" style="margin-top:16px">
+<pre>```evidence
+<span class="k">id</span>: E1
+<span class="k">claim</span>: Missed 22% of floor votes in the 2025 session
+<span class="k">source</span>: SA Hansard, 2025 session voting record, p.412
+<span class="k">archived</span>: https://web.archive.org/web/2026/hansard
+<span class="k">status</span>: verified
+<span class="k">verifiedBy</span>: James Flynn
+--
+<span class="k">id</span>: E2
+<span class="k">claim</span>: Has taken donations from developers
+<span class="k">status</span>: unsourced          <span class="c">← blocker</span>
+```</pre>
+  </div>
+  <div class="wrap stack" style="margin-top:20px">
+    <ul class="checks" style="gap:9px">
+      <li><b>Never fabricate a source.</b> If a claim cannot be backed, downgrade the ad or drop it — never launder it into a question. <em>"Why won't he say whether…"</em> is the same claim wearing a hat</li>
+      <li><b>Attaching a URL is not verification.</b> Verified means a named person checked the source says what the claim says</li>
+      <li><b>Archive it.</b> A live URL with no archived copy is flagged. The page that disappears is always the one you needed</li>
+    </ul>
+  </div>
+  <div class="wrap stack" style="margin-top:32px">
     <h3>Board columns</h3>
     <p>Existing column names are recognised automatically. <code>Drafting</code>, <code>Doing</code> and <code>WIP</code> all map to <code>in_production</code>; <code>With Client</code> maps to <code>client_review</code>. The SANDBOX board's five columns map with no renaming at all.</p>
     <h3 style="margin-top:12px">The audit trail</h3>
@@ -547,9 +597,22 @@
           <tr><td class="m">workflow_compliance_check</td><td>Run the engine on a deliverable and post the report</td></tr>
           <tr><td class="m">workflow_compliance_preview</td><td>Run it on ad-hoc values while drafting, before a card exists</td></tr>
           <tr><td class="m">workflow_board_status</td><td>Counts per state, overdue, awaiting client, awaiting compliance, blocked</td></tr>
+          <tr><td class="m">workflow_recipe</td><td>What "done" looks like per type — required metadata, brief questions, asset specs, and the traps that kill that type. Returns a ready-to-fill brief scaffold</td></tr>
+          <tr><td class="m">workflow_au_state_rules</td><td>The state and territory authorisation matrix</td></tr>
+          <tr><td class="m">workflow_get_evidence</td><td>Read the claims register and its audit</td></tr>
+          <tr><td class="m">workflow_set_evidence</td><td>Replace the register — a replace, not an append</td></tr>
+          <tr><td class="m">workflow_audit_evidence</td><td>Audit a claim set without touching Kitchen</td></tr>
+          <tr><td class="m">workflow_status_report</td><td>Internal standup report and a client-facing update, from one board read</td></tr>
+          <tr><td class="m">workflow_record_pack</td><td>The retention artefact for one deliverable — and the gaps in its own record</td></tr>
         </tbody>
       </table>
     </div>
+  </div>
+  <div class="wrap stack" style="margin-top:30px">
+    <h3>The record pack</h3>
+    <p>What you produce when a regulator, a journalist or a client's lawyer asks what happened: what ran, who authorised it, who paid, who approved it and at which version, on what evidence, plus every gate signature, the compliance history and the state history. It also lists the gaps in its own record — because a record with gaps is still the record, and the time to fill them is while the people involved still remember.</p>
+    <h3 style="margin-top:14px">The skill</h3>
+    <p>All of it is packaged as a skill so it triggers on natural phrasing — <em>"add this to the pipeline"</em>, <em>"what's waiting on the client"</em>, <em>"the client approved it"</em>, <em>"pull the record for that ad"</em> — rather than requiring anyone to remember nineteen tool names.</p>
   </div>
   <div class="wrap stack" style="margin-top:30px">
     <h3>Enforcement, precisely</h3>
