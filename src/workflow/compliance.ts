@@ -634,9 +634,32 @@ export function renderReport(
   }
 
   lines.push("---");
-  lines.push(
-    `Required ${report.authorisationSpec.term}: \`${report.authorisationSpec.template}\``,
-  );
+  // Show the form that actually applies. Printing the Commonwealth
+  // template under a state-election report would send the reader back
+  // into the exact mistake the findings just flagged.
+  const stateRegime =
+    input.jurisdiction === "AU" ? auRegime(input.region) : undefined;
+  if (stateRegime) {
+    const addressForm =
+      stateRegime.poBox === "prohibited"
+        ? "street address (no PO Box)"
+        : stateRegime.poBox === "allowed"
+          ? "street address or PO Box (never an email address)"
+          : "address form unverified — confirm with the commission";
+    lines.push(
+      `Required for ${stateRegime.region} (${stateRegime.act}): name + ${addressForm}.`,
+    );
+    if (stateRegime.extraParticulars.length > 1) {
+      lines.push(`Particulars: ${stateRegime.extraParticulars.join("; ")}.`);
+    }
+    lines.push(
+      `Commonwealth form, for reference: \`${report.authorisationSpec.template}\` — not sufficient on its own for a ${stateRegime.region} election.`,
+    );
+  } else {
+    lines.push(
+      `Required ${report.authorisationSpec.term}: \`${report.authorisationSpec.template}\``,
+    );
+  }
   lines.push(`Checked ${report.checkedAt}. Operational guidance, not legal advice.`);
   return lines.join("\n");
 }

@@ -42,6 +42,7 @@ import {
 } from "./kitchen-map.js";
 import { checkTransition, happyPath } from "./states.js";
 import {
+  BOARD_COLUMN_ORDER,
   GATES,
   STATE_COLUMN_TITLES,
   gateById,
@@ -908,6 +909,139 @@ export async function boardStatus(
   }
 
   return status;
+}
+
+/* ------------------------------------------------------------------ */
+/* Status reporting                                                    */
+/* ------------------------------------------------------------------ */
+
+export interface StatusReport {
+  boardId: string;
+  generatedAt: string;
+  /** Internal view — blunt, includes what is going wrong. */
+  internal: string;
+  /** Client-facing view — what shipped, what's coming, what we need. */
+  client: string;
+}
+
+/**
+ * Two reports from one board read, because the internal standup and the
+ * client update are genuinely different documents. The internal one
+ * names what is stuck and why; the client one says what shipped, what is
+ * next, and what the agency is waiting on them for.
+ */
+export async function buildStatusReport(
+  creds: Creds,
+  args: { boardId: string; clientName?: string; periodLabel?: string },
+): Promise<StatusReport> {
+  const status = await boardStatus(creds, { boardId: args.boardId });
+  const c = status.counts;
+  const n = (s: State) => c[s] ?? 0;
+
+  const live =
+    n("intake") + n("scoped") + n("in_production") + n("internal_review") +
+    n("compliance_review") + n("client_review") + n("changes_requested") +
+    n("approved") + n("scheduled");
+  const shipped = n("deployed") + n("verified") + n("archived");
+
+  /* ---- internal ---- */
+  const I: string[] = [];
+  I.push(`# Pipeline — ${args.clientName ?? args.boardId}${args.periodLabel ? ` · ${args.periodLabel}` : ""}`);
+  I.push("");
+  I.push(`${live} live, ${shipped} shipped, ${n("blocked")} blocked.`);
+  I.push("");
+  I.push("| State | Count |");
+  I.push("|---|---|");
+  for (const s of BOARD_COLUMN_ORDER) {
+    if (n(s)) I.push(`| ${STATE_COLUMN_TITLES[s]} | ${n(s)} |`);
+  }
+  I.push("");
+
+  if (status.stalled.length) {
+    I.push(`## Overdue (${status.stalled.length})`);
+    I.push("");
+    for (const t of status.stalled) {
+      I.push(`- **${t.title}** — ${STATE_COLUMN_TITLES[t.state]}, due ${t.dueAt?.slice(0, 10)}`);
+    }
+    I.push("");
+  }
+  if (status.blocked.length) {
+    I.push(`## Blocked (${status.blocked.length})`);
+    I.push("");
+    for (const t of status.blocked) I.push(`- ${t.title}`);
+    I.push("");
+    I.push("_Blocked items need an owner and a date, or they need cancelling._");
+    I.push("");
+  }
+  if (status.awaitingCompliance.length) {
+    I.push(`## Waiting on compliance (${status.awaitingCompliance.length})`);
+    I.push("");
+    for (const t of status.awaitingCompliance) I.push(`- ${t.title}`);
+    I.push("");
+    I.push("_Usually one missing field. Clear these first — they hold up everything behind them._");
+    I.push("");
+  }
+  if (n("changes_requested")) {
+    I.push(
+      `## Rework\n\n${n("changes_requested")} item(s) in Changes Requested. Anything sitting here beyond a week is a scoping failure — re-brief it rather than iterating.\n`,
+    );
+  }
+  if (n("deployed") && !n("verified")) {
+    I.push(
+      `## Unclosed loops\n\n${n("deployed")} item(s) deployed but not verified. Confirm they are live, the authorisation is visible, and capture the permalink.\n`,
+    );
+  }
+  if (status.unmappedLists.length) {
+    I.push(
+      `## Off-workflow columns\n\n${status.unmappedLists.map((x) => `\`${x}\``).join(", ")} — deliverables parked here are invisible to the engine.\n`,
+    );
+  }
+
+  /* ---- client ---- */
+  const C: string[] = [];
+  C.push(`# Status update${args.clientName ? ` — ${args.clientName}` : ""}${args.periodLabel ? ` · ${args.periodLabel}` : ""}`);
+  C.push("");
+  C.push(`**${shipped}** deliverable(s) live. **${live}** in progress.`);
+  C.push("");
+
+  C.push("## In progress");
+  C.push("");
+  const inProgress =
+    n("intake") + n("scoped") + n("in_production") + n("internal_review") + n("compliance_review");
+  C.push(inProgress ? `${inProgress} item(s) in production and review with us.` : "Nothing currently in production.");
+  C.push("");
+
+  if (status.awaitingClient.length) {
+    C.push(`## We need from you (${status.awaitingClient.length})`);
+    C.push("");
+    for (const t of status.awaitingClient) C.push(`- **${t.title}** — awaiting your sign-off`);
+    C.push("");
+    C.push(
+      "_To keep these moving we need an explicit yes from the named approver, confirming the version and whether the approval covers placement and spend as well as creative._",
+    );
+    C.push("");
+  }
+
+  if (n("approved") || n("scheduled")) {
+    C.push("## Approved and ready");
+    C.push("");
+    C.push(`${n("approved") + n("scheduled")} item(s) signed off and queued to go live.`);
+    C.push("");
+  }
+
+  if (status.blocked.length) {
+    C.push("## Held up");
+    C.push("");
+    for (const t of status.blocked) C.push(`- ${t.title}`);
+    C.push("");
+  }
+
+  return {
+    boardId: args.boardId,
+    generatedAt: new Date().toISOString(),
+    internal: I.join("\n"),
+    client: C.join("\n"),
+  };
 }
 
 export { STATE_COLUMN_TITLES };

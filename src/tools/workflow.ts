@@ -11,6 +11,7 @@ import {
   advanceDeliverable,
   boardStatus,
   buildRecordPack,
+  buildStatusReport,
   createDeliverable,
   provisionBoard,
   readDeliverable,
@@ -543,5 +544,23 @@ export function registerWorkflowTools(reg: ToolRegistry): void {
     readOnly: true,
     inputSchema: { board_id: z.string() },
     handler: async ({ board_id }, ctx) => boardStatus(ctx.credentials, { boardId: board_id }),
+  });
+
+  reg.add({
+    name: "workflow_status_report",
+    description:
+      "Generate two reports from one board read: an internal one that names what is stuck and why (overdue, blocked, rework, unclosed loops), and a client-facing one that says what shipped, what is in progress, and what the agency is waiting on the client for. Use for a standup or a weekly client update.",
+    readOnly: true,
+    inputSchema: {
+      board_id: z.string(),
+      client_name: z.string().optional(),
+      period_label: z.string().optional().describe("e.g. 'Week of 17 Aug'."),
+    },
+    handler: async (input, ctx) =>
+      buildStatusReport(ctx.credentials, {
+        boardId: input.board_id,
+        clientName: input.client_name,
+        periodLabel: input.period_label,
+      }),
   });
 }
