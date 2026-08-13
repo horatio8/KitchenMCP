@@ -6,16 +6,26 @@ import {
   platformMatrix,
   type ComplianceInput,
 } from "../workflow/compliance.js";
+import { AU_REGIONS, auStateMatrix } from "../workflow/au-states.js";
 import {
   advanceDeliverable,
   boardStatus,
+  buildRecordPack,
   createDeliverable,
   provisionBoard,
   readDeliverable,
   recordApproval,
   runComplianceCheck,
+  setEvidence,
   signGate,
 } from "../workflow/engine.js";
+import {
+  auditEvidence,
+  nextEvidenceId,
+  renderEvidenceReport,
+  type EvidenceEntry,
+} from "../workflow/evidence.js";
+import { allRecipes, recipeFor, renderBriefScaffold } from "../workflow/recipes.js";
 import { allowedTransitions, happyPath } from "../workflow/states.js";
 import {
   DELIVERABLE_TYPES,
@@ -373,6 +383,155 @@ export function registerWorkflowTools(reg: ToolRegistry): void {
         conditions: input.conditions,
         quotedFrom: input.quoted_from,
       }),
+  });
+
+  /* ---------------- recipes ---------------- */
+
+  reg.add({
+    name: "workflow_recipe",
+    description:
+      "What 'done' looks like for a deliverable type: the metadata it must carry, what the brief has to answer, the assets it needs with their specs, type-specific QA, and the traps that specifically kill this type. Call this before writing a brief — it is the difference between a blank page and a scaffold.",
+    readOnly: true,
+    inputSchema: {
+      deliverable_type: typeEnum.optional().describe("Omit to list every recipe."),
+      as_brief_scaffold: z
+        .boolean()
+        .optional()
+        .describe("Return a ready-to-fill markdown brief instead of the structured recipe."),
+    },
+    handler: async ({ deliverable_type, as_brief_scaffold }) => {
+      if (!deliverable_type) {
+        return {
+          recipes: allRecipes().map((r) => ({
+            type: r.type,
+            label: r.label,
+            definition: r.definition,
+            default_workstream: r.defaultWorkstream,
+            typical_days: r.typicalDays,
+          })),
+        };
+      }
+      if (as_brief_scaffold) {
+        return { deliverable_type, scaffold: renderBriefScaffold(deliverable_type) };
+      }
+      return recipeFor(deliverable_type) ?? { error: "unknown deliverable type" };
+    },
+  });
+
+  /* ---------------- AU state regimes ---------------- */
+
+  reg.add({
+    name: "workflow_au_state_rules",
+    description:
+      "Australian state and territory electoral authorisation regimes, which layer on top of the Commonwealth Act. Most importantly: whether a PO Box is acceptable as the authorisation address — SA and NSW prohibit it, VIC and QLD allow it. A federal-form authorisation reused on a state ad is the most common way this fails. States marked unverified need confirming with the commission.",
+    readOnly: true,
+    inputSchema: {
+      region: z
+        .enum(AU_REGIONS)
+        .optional()
+        .describe("Omit to return the full matrix."),
+    },
+    handler: async ({ region }) => {
+      const matrix = auStateMatrix();
+      if (!region) return { regions: matrix };
+      return matrix.find((r) => r.region === region) ?? { error: "unknown region" };
+    },
+  });
+
+  /* ---------------- evidence register ---------------- */
+
+  reg.add({
+    name: "workflow_get_evidence",
+    description:
+      "Read the evidence register on a deliverable: every negative or comparative claim, its source, whether an archived copy exists, and whether a named person has verified the source says what the claim says.",
+    readOnly: true,
+    inputSchema: { task_id: z.string() },
+    handler: async ({ task_id }, ctx) => {
+      const view = await readDeliverable(ctx.credentials, task_id);
+      return {
+        task_id,
+        entries: view.evidence,
+        audit: view.evidenceAudit,
+        report: renderEvidenceReport(view.evidence),
+      };
+    },
+  });
+
+  reg.add({
+    name: "workflow_set_evidence",
+    description:
+      "Replace the evidence register on a deliverable. Pass the full set of claims — this is a replace, not an append, so read it first if you are adding to an existing register. Unsourced claims will block the compliance gate. Attaching a URL is not verification: 'verified' means a named person checked the source actually says what the claim says.",
+    inputSchema: {
+      task_id: z.string(),
+      entries: z
+        .array(
+          z.object({
+            id: z.string().optional().describe("Stable id like 'E1'. Auto-assigned if omitted."),
+            claim: z.string().describe("The claim exactly as it will appear in the creative."),
+            source: z.string().optional().describe("Publication, document, date, page."),
+            url: z.string().optional(),
+            archived: z
+              .string()
+              .optional()
+              .describe("Archived copy — a web.archive.org URL or a Kitchen file id. Pages disappear."),
+            status: z
+              .enum(["unsourced", "sourced", "verified", "withdrawn"])
+              .default("unsourced"),
+            verifiedBy: z.string().optional(),
+            verifiedAt: z.string().optional(),
+            notes: z.string().optional(),
+          }),
+        )
+        .describe("The complete register."),
+      post_comment: z.boolean().optional().describe("Post the register to the task. Default true."),
+    },
+    handler: async (input, ctx) => {
+      const entries: EvidenceEntry[] = [];
+      for (const e of input.entries) {
+        entries.push({
+          ...e,
+          id: e.id ?? nextEvidenceId(entries),
+          status: e.status ?? "unsourced",
+        } as EvidenceEntry);
+      }
+      return setEvidence(ctx.credentials, {
+        taskId: input.task_id,
+        entries,
+        post: input.post_comment,
+      });
+    },
+  });
+
+  reg.add({
+    name: "workflow_audit_evidence",
+    description:
+      "Audit a set of claims without touching Kitchen — which are unsourced, which are sourced but unverified, and which cite a live URL with no archived copy.",
+    readOnly: true,
+    inputSchema: {
+      entries: z.array(
+        z.object({
+          id: z.string(),
+          claim: z.string(),
+          source: z.string().optional(),
+          url: z.string().optional(),
+          archived: z.string().optional(),
+          status: z.enum(["unsourced", "sourced", "verified", "withdrawn"]),
+        }),
+      ),
+    },
+    handler: async ({ entries }) => auditEvidence(entries as EvidenceEntry[]),
+  });
+
+  /* ---------------- record pack ---------------- */
+
+  reg.add({
+    name: "workflow_record_pack",
+    description:
+      "Assemble the retention record for a deliverable: what ran, who authorised it, who paid, who approved it, on what evidence, and when — plus every gate signature, the compliance history and the state history. This is the document you produce when a regulator, a journalist or a client's lawyer asks what happened. It also lists the gaps in its own record.",
+    readOnly: true,
+    inputSchema: { task_id: z.string() },
+    handler: async ({ task_id }, ctx) =>
+      buildRecordPack(ctx.credentials, { taskId: task_id }),
   });
 
   /* ---------------- board status ---------------- */

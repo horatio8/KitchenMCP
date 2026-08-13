@@ -12,6 +12,7 @@
  * Jurisdiction-specific filing questions go to counsel.
  */
 
+import { analyseAuthorisationAddress, auRegime } from "./au-states.js";
 import type { DeliverableType } from "./types.js";
 
 export const JURISDICTIONS = ["AU", "US", "NZ"] as const;
@@ -299,14 +300,101 @@ export function evaluateCompliance(input: ComplianceInput): ComplianceReport {
     }
   }
 
+  /* -------- AU state / territory overlay -------------------------- */
   if (input.jurisdiction === "AU" && input.region) {
-    f.push({
-      code: "AU_STATE_RULES",
-      severity: "info",
-      area: "authorisation",
-      message: `Region "${input.region}" recorded — state electoral commission rules may layer on top of the Commonwealth regime.`,
-      remedy: `Confirm the ${input.region} electoral commission's authorisation requirements at intake.`,
-    });
+    const regime = auRegime(input.region);
+    if (!regime) {
+      f.push({
+        code: "AU_REGION_UNKNOWN",
+        severity: "warning",
+        area: "authorisation",
+        message: `Region "${input.region}" is not a recognised Australian state or territory.`,
+        remedy: "Use one of SA, NSW, VIC, QLD, WA, TAS, ACT, NT — or clear the field if this is a federal campaign.",
+      });
+    } else {
+      f.push({
+        code: "AU_STATE_REGIME",
+        severity: "info",
+        area: "authorisation",
+        message:
+          `${regime.region}: ${regime.act}, administered by ${regime.commission} (${regime.commissionAbbrev}). ` +
+          regime.notes.join(" "),
+        remedy: regime.penalty ? `Penalty: ${regime.penalty}.` : undefined,
+      });
+
+      if (!regime.verified) {
+        f.push({
+          code: "AU_STATE_UNVERIFIED",
+          severity: "warning",
+          area: "authorisation",
+          message: `${regime.region} authorisation details are not verified in this engine.`,
+          remedy: `Confirm the current requirements with ${regime.commissionAbbrev} before publishing. Do not assume the Commonwealth form is sufficient.`,
+        });
+      }
+
+      // Concrete, mechanically checkable address-form rules.
+      if (authorisationRequired && input.authorisationText?.trim()) {
+        const addr = analyseAuthorisationAddress(input.authorisationText);
+
+        if (regime.poBox === "prohibited" && addr.hasPoBox) {
+          f.push({
+            code: "AU_STATE_POBOX",
+            severity: "blocker",
+            area: "authorisation",
+            message: `${regime.region} does not accept a PO Box in an authorisation, and this one contains a postal box.`,
+            remedy:
+              regime.region === "SA"
+                ? "Use a street address. An independent candidate may use a PO Box only with the Electoral Commissioner's approval, and must add their suburb at the end of the ad."
+                : "Use a street address.",
+          });
+        }
+
+        if (regime.poBox === "allowed" && addr.hasEmail) {
+          f.push({
+            code: "AU_STATE_EMAIL_ADDRESS",
+            severity: "blocker",
+            area: "authorisation",
+            message: `${regime.region} does not accept an email address as the authorisation address.`,
+            remedy: "Use a street address or a PO Box.",
+          });
+        }
+
+        if (
+          regime.poBox === "prohibited" &&
+          !addr.hasPoBox &&
+          !addr.looksLikeStreetAddress
+        ) {
+          f.push({
+            code: "AU_STATE_ADDRESS_THIN",
+            severity: "warning",
+            area: "authorisation",
+            message:
+              `${regime.region} requires a street address in the authorisation, and this one does not appear to contain one. ` +
+              "A town or city alone — which satisfies the Commonwealth regime for an entity — is not enough here.",
+            remedy: `Required particulars: ${regime.extraParticulars.join("; ")}.`,
+          });
+        }
+
+        if (regime.poBox === "unverified" && !addr.looksLikeStreetAddress) {
+          f.push({
+            code: "AU_STATE_ADDRESS_CHECK",
+            severity: "warning",
+            area: "authorisation",
+            message: `${regime.region}: the acceptable address form is not verified in this engine and the authorisation carries no street address.`,
+            remedy: `Confirm with ${regime.commissionAbbrev} whether a PO Box or town/city is acceptable.`,
+          });
+        }
+      }
+
+      if (regime.alwaysOn && !input.electoralMatter) {
+        f.push({
+          code: "AU_STATE_ALWAYS_ON",
+          severity: "info",
+          area: "authorisation",
+          message: `${regime.region} requires authorisation of electoral material outside the election period too, not only during a campaign.`,
+        });
+      }
+    }
   }
 
   /* -------- platform --------------------------------------------- */

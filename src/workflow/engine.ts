@@ -13,6 +13,16 @@ import { callKitchen } from "../kitchen/client.js";
 import type { KitchenCredentials } from "../kitchen/credentials.js";
 import { evaluateCompliance, type ComplianceInput, type ComplianceReport } from "./compliance.js";
 import {
+  auditEvidence,
+  parseEvidence,
+  renderEvidenceReport,
+  stripEvidence,
+  upsertEvidence,
+  type EvidenceAudit,
+  type EvidenceEntry,
+} from "./evidence.js";
+import { missingMeta, recipeFor, type Recipe } from "./recipes.js";
+import {
   buildStateIndex,
   classifyComment,
   desiredColumns,
@@ -41,6 +51,22 @@ import {
 } from "./types.js";
 
 type Creds = KitchenCredentials;
+
+/**
+ * Compose a task description from its three parts.
+ *
+ * The description carries a human brief plus two machine blocks. Every
+ * write MUST go through here — writing `upsertMeta(brief, meta)` alone
+ * silently drops the evidence register, because `brief` has already had
+ * both blocks stripped out of it.
+ */
+function composeDescription(
+  brief: string,
+  meta: DeliverableMeta,
+  evidence: EvidenceEntry[],
+): string {
+  return upsertEvidence(upsertMeta(brief, meta), evidence);
+}
 
 /* ------------------------------------------------------------------ */
 /* Low-level Kitchen helpers                                           */
@@ -237,6 +263,12 @@ export interface DeliverableView {
   /** Next legal forward move, if any. */
   nextState?: State;
   dueAt?: string | null;
+  /** Claims register and its audit. */
+  evidence: EvidenceEntry[];
+  evidenceAudit: EvidenceAudit;
+  /** Metadata the recipe requires that is still empty. */
+  missingMeta: string[];
+  recipe?: Recipe;
 }
 
 export async function readDeliverable(
@@ -267,6 +299,8 @@ export async function readDeliverable(
   const idx = state ? path.indexOf(state) : -1;
   const remaining = idx >= 0 ? path.slice(idx + 1) : path;
 
+  const evidence = parseEvidence(task.description);
+
   return {
     taskId,
     title: task.title,
@@ -274,7 +308,12 @@ export async function readDeliverable(
     listId: task.list,
     state,
     meta,
-    brief: stripMeta(task.description),
+    // The brief is what remains once both machine blocks are removed.
+    brief: stripEvidence(stripMeta(task.description)),
+    evidence,
+    evidenceAudit: auditEvidence(evidence),
+    missingMeta: missingMeta(type, meta as Record<string, unknown>),
+    recipe: recipeFor(type),
     audit: comments.map((c) => {
       const body = commentText(c);
       return {
@@ -507,7 +546,7 @@ export async function advanceDeliverable(
   }
   const nextMeta = mergeMeta(view.meta, patch);
   await updateTask(creds, args.taskId, {
-    description: upsertMeta(view.brief, nextMeta),
+    description: composeDescription(view.brief, nextMeta, view.evidence),
   });
 
   await addComment(
@@ -539,8 +578,20 @@ export async function runComplianceCheck(
   const view = await readDeliverable(creds, args.taskId);
   const m = view.meta;
 
+  // Negative/comparative claims come from the deliverable's own evidence
+  // register, so the compliance check and the register can never disagree.
+  const negativeClaims = view.evidence
+    .filter((e) => e.status !== "withdrawn")
+    .map((e) => ({
+      claim: e.claim,
+      evidence: [e.source, e.url, e.archived].filter(
+        (x): x is string => Boolean(x),
+      ),
+    }));
+
   const input: ComplianceInput = {
     deliverableType: m.type ?? "internal",
+    negativeClaims,
     jurisdiction: m.jurisdiction ?? "AU",
     region: m.region,
     platforms: m.platforms ?? [],
@@ -592,10 +643,206 @@ export async function recordApproval(
     clientApprover: args.approver,
   });
   await updateTask(creds, args.taskId, {
-    description: upsertMeta(view.brief, nextMeta),
+    description: composeDescription(view.brief, nextMeta, view.evidence),
   });
 
   return { recorded: true, comment };
+}
+
+/* ------------------------------------------------------------------ */
+/* Evidence register                                                   */
+/* ------------------------------------------------------------------ */
+
+export async function setEvidence(
+  creds: Creds,
+  args: { taskId: string; entries: EvidenceEntry[]; post?: boolean },
+): Promise<{ entries: EvidenceEntry[]; audit: EvidenceAudit; posted: boolean }> {
+  const view = await readDeliverable(creds, args.taskId);
+  await updateTask(creds, args.taskId, {
+    description: composeDescription(view.brief, view.meta, args.entries),
+  });
+
+  let posted = false;
+  if (args.post !== false) {
+    await addComment(creds, args.taskId, renderEvidenceReport(args.entries));
+    posted = true;
+  }
+  return { entries: args.entries, audit: auditEvidence(args.entries), posted };
+}
+
+/* ------------------------------------------------------------------ */
+/* Record pack — the statutory retention artefact                      */
+/* ------------------------------------------------------------------ */
+
+export interface RecordPack {
+  taskId: string;
+  title: string;
+  generatedAt: string;
+  /** Everything a disclosure return or complaint response needs. */
+  markdown: string;
+  /** Gaps that make this record incomplete. */
+  gaps: string[];
+}
+
+/**
+ * Assemble the retention record for a deliverable: what ran, who
+ * authorised it, who paid, who approved it, on what evidence, and when.
+ *
+ * This is the document you produce when a regulator, a journalist or a
+ * client's lawyer asks what happened. Assembling it after the fact from
+ * a Slack thread is how agencies lose arguments.
+ */
+export async function buildRecordPack(
+  creds: Creds,
+  args: { taskId: string },
+): Promise<RecordPack> {
+  const view = await readDeliverable(creds, args.taskId);
+  const m = view.meta;
+  const gaps: string[] = [];
+
+  const comments = await listComments(creds, args.taskId);
+  const byKind = (kind: string) =>
+    comments.filter((c) => classifyComment(commentText(c)) === kind);
+
+  const approvals = byKind("approval");
+  const gatePasses = byKind("gate");
+  const complianceRuns = byKind("compliance");
+  const transitions = byKind("transition");
+
+  if (!m.authorisationText) gaps.push("No authorisation statement recorded.");
+  if (!m.payingEntity) gaps.push("No paying entity recorded.");
+  if (!approvals.length) gaps.push("No client approval record.");
+  if (!complianceRuns.length) gaps.push("No compliance check was ever run.");
+  if (!m.recordRetained) gaps.push("Final creative not marked as retained.");
+  if (!view.evidenceAudit.clean && view.evidence.length) {
+    gaps.push(`${view.evidenceAudit.unsourced.length} claim(s) remain unsourced.`);
+  }
+  if (!m.flightStart) gaps.push("No flight start date recorded.");
+
+  const L: string[] = [];
+  L.push(`# Record pack — ${view.title}`);
+  L.push("");
+  L.push(`Generated ${new Date().toISOString()} · Kitchen task \`${args.taskId}\``);
+  L.push("");
+
+  L.push("## What it was");
+  L.push("");
+  L.push(`- **Type:** ${m.type ?? "—"}`);
+  L.push(`- **Workstream:** ${m.workstream ?? "—"}`);
+  L.push(`- **Final state:** ${view.state ?? "unknown"}`);
+  L.push(`- **Version of record:** ${m.version ?? "—"}`);
+  L.push(`- **Platforms:** ${m.platforms?.join(", ") || "—"}`);
+  L.push(`- **Paid placement:** ${m.paid ? "yes" : "no"}`);
+  L.push(`- **Electoral matter:** ${m.electoralMatter === false ? "no" : "yes"}`);
+  L.push("");
+
+  L.push("## Authorisation and funding");
+  L.push("");
+  L.push(`- **Jurisdiction:** ${m.jurisdiction ?? "—"}${m.region ? ` / ${m.region}` : ""}`);
+  L.push(`- **Authorisation statement:** ${m.authorisationText ?? "**MISSING**"}`);
+  L.push(`- **Paying entity:** ${m.payingEntity ?? "**MISSING**"}`);
+  L.push(`- **Advertiser verification confirmed on:** ${m.verifiedPlatforms?.join(", ") || "—"}`);
+  L.push(`- **Special ad category declared:** ${m.specialCategoryDeclared ? "yes" : "no"}`);
+  L.push("");
+
+  L.push("## Flight");
+  L.push("");
+  L.push(`- **Start:** ${m.flightStart ?? "—"}`);
+  L.push(`- **End:** ${m.flightEnd ?? "—"}`);
+  L.push(`- **Election date:** ${m.electionDate ?? "—"}`);
+  L.push("");
+
+  L.push("## Approval");
+  L.push("");
+  if (approvals.length) {
+    for (const a of approvals) {
+      L.push(`> ${commentText(a).replace(/\n/g, "\n> ")}`);
+      L.push("");
+      L.push(`_Recorded ${a.created_at ?? "—"}, author \`${a.author ?? "—"}\`._`);
+      L.push("");
+    }
+  } else {
+    L.push("**No client approval was recorded against this deliverable.**");
+    L.push("");
+  }
+
+  L.push("## Gate signatures");
+  L.push("");
+  if (gatePasses.length) {
+    for (const g of gatePasses) {
+      const id = extractGateId(commentText(g)) ?? "unknown gate";
+      L.push(`- \`${id}\` — ${g.created_at ?? "—"} — author \`${g.author ?? "—"}\``);
+    }
+  } else {
+    L.push("None recorded.");
+  }
+  L.push("");
+  L.push(`Gates signed: ${view.gatesPassed.join(", ") || "none"}`);
+  L.push("");
+
+  L.push("## Compliance history");
+  L.push("");
+  if (complianceRuns.length) {
+    const last = complianceRuns[complianceRuns.length - 1];
+    L.push(`${complianceRuns.length} check(s) run. Most recent:`);
+    L.push("");
+    L.push("```");
+    L.push(commentText(last).slice(0, 2000));
+    L.push("```");
+  } else {
+    L.push("**No compliance check was ever run against this deliverable.**");
+  }
+  L.push("");
+
+  L.push("## Evidence register");
+  L.push("");
+  L.push(view.evidence.length ? renderEvidenceReport(view.evidence) : "No claims registered.");
+  L.push("");
+
+  L.push("## State history");
+  L.push("");
+  if (transitions.length) {
+    for (const tr of transitions) {
+      L.push(`- ${tr.created_at ?? "—"} — ${commentText(tr).split("\n")[0].replace(/\*\*/g, "")}`);
+    }
+  } else {
+    L.push("No state changes recorded.");
+  }
+  L.push("");
+
+  L.push("## Attachments on record");
+  L.push("");
+  const withFiles = comments.filter((c) => (c.attachments?.length ?? 0) > 0);
+  if (withFiles.length) {
+    for (const c of withFiles) {
+      L.push(`- ${c.created_at ?? "—"} — ${c.attachments?.join(", ")}`);
+    }
+  } else {
+    L.push("No files attached to any comment on this task.");
+  }
+  L.push("");
+
+  if (gaps.length) {
+    L.push("## Gaps in this record");
+    L.push("");
+    for (const g of gaps) L.push(`- ${g}`);
+    L.push("");
+    L.push(
+      "_A record with gaps is still the record. Fill them while the people involved still remember._",
+    );
+  } else {
+    L.push("## Completeness");
+    L.push("");
+    L.push("No gaps detected. This record answers what ran, who authorised it, who paid, who approved it and on what evidence.");
+  }
+
+  return {
+    taskId: args.taskId,
+    title: view.title,
+    generatedAt: new Date().toISOString(),
+    markdown: L.join("\n"),
+    gaps,
+  };
 }
 
 /* ------------------------------------------------------------------ */
