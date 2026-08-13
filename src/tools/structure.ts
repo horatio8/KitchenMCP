@@ -44,10 +44,8 @@ export function registerStructureTools(reg: ToolRegistry): void {
         .describe("Who can see the board. Required by the Kitchen API."),
       folder_id: z.string().optional(),
     },
-    buildRequest: (input) => ({
-      path: "/api/boards",
-      body: { visibility: "private", ...input },
-    }),
+    // visibility carries a zod default, so it is always present here.
+    buildRequest: (input) => ({ path: "/api/boards", body: input }),
   });
 
   reg.addCall({
