@@ -8,6 +8,7 @@ import { registerRawTool } from "./raw.js";
 import { registerStructureTools } from "./structure.js";
 import { registerTaskTools } from "./tasks.js";
 import { registerWebhookTools } from "./webhooks.js";
+import { registerWorkflowTools } from "./workflow.js";
 
 export function buildToolRegistry(): ToolRegistry {
   const reg = new ToolRegistry();
@@ -19,6 +20,7 @@ export function buildToolRegistry(): ToolRegistry {
   registerStructureTools(reg);
   registerWebhookTools(reg);
   registerFileTools(reg);
+  registerWorkflowTools(reg);
   registerRawTool(reg);
   return reg;
 }

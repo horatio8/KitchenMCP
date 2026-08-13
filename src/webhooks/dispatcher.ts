@@ -1,5 +1,7 @@
 import { request } from "undici";
+import { config } from "../config.js";
 import { logger } from "../logger.js";
+import { handleWorkflowEvent } from "../workflow/automation.js";
 
 export interface KitchenWebhookEvent {
   id: string;
@@ -42,6 +44,31 @@ export class WebhookDispatcher {
       { eventId: event.id, type: event.type, category, created: event.created },
       "kitchen webhook received",
     );
+
+    // Workflow automation: observe, check, annotate. Fire-and-forget so
+    // a slow Kitchen API call can never delay the webhook ack.
+    if (config.workflowAutomation) {
+      handleWorkflowEvent({
+        id: event.id,
+        type: event.type,
+        created: event.created,
+        data: (event.data ?? {}) as Record<string, unknown>,
+      })
+        .then((outcome) => {
+          if (outcome.actions.length) {
+            logger.info(
+              { eventId: event.id, type: event.type, actions: outcome.actions },
+              "workflow automation ran",
+            );
+          }
+        })
+        .catch((err) => {
+          logger.warn(
+            { eventId: event.id, type: event.type, err: String(err) },
+            "workflow automation threw",
+          );
+        });
+    }
 
     if (this.opts.forwardUrl) {
       // Fire-and-forget; errors are logged but do not surface to Kitchen.
