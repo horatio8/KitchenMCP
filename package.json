@@ -1,14 +1,15 @@
 {
   "name": "kitchen-mcp-server",
   "version": "0.1.0",
-  "description": "Hosted MCP server for Kitchen.co — exposes the Kitchen API to MCP-compatible AI clients over secure Streamable HTTP.",
+  "description": "Hosted MCP server for Kitchen.co \u2014 exposes the Kitchen API to MCP-compatible AI clients over secure Streamable HTTP.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/test-workflow.mjs && node scripts/test-transport.mjs"
   },
   "engines": {
     "node": ">=20"

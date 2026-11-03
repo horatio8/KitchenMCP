@@ -6,7 +6,7 @@ import { pinoHttp } from "pino-http";
 import { timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-import { handleMcpRequest } from "./mcp.js";
+import { handleMcpRequest, mcpSessionsEnabled } from "./mcp.js";
 import { buildOAuthRouter, extractCredentialsFromBearer, getSigningSecret } from "./oauth/index.js";
 import { buildWebhookRouter } from "./webhooks/receiver.js";
 
@@ -222,6 +222,18 @@ export function buildApp(): express.Express {
           !config.fallbackKitchenApiKey && "KITCHEN_API_KEY",
           !config.fallbackKitchenWorkspace && "KITCHEN_WORKSPACE",
         ].filter(Boolean),
+      },
+      mcp: {
+        endpoint: "/mcp",
+        transport: "streamable-http",
+        // Stateless unless MCP_SESSIONS=1. On a serverless host the
+        // next request lands in different memory, so a session id
+        // minted here would 404 on the following call.
+        sessions: mcpSessionsEnabled(),
+        // false means /mcp answers anyone who knows the URL. Note that
+        // ALLOWED_ORIGINS does not close this: server-to-server callers
+        // send no Origin header and are allowed through by design.
+        gated: Boolean(config.mcpGateToken),
       },
     });
   });

@@ -36,9 +36,35 @@ Point any MCP client at `https://<your-host>/mcp` (Streamable HTTP transport). S
 | `X-Kitchen-API-Key` | yes (per-tenant) | Kitchen bearer token from **Settings → API & Webhooks → API Tokens** |
 | `X-Kitchen-Workspace` | yes (per-tenant) | Workspace subdomain (e.g. `acme` for `acme.kitchen.co`) |
 | `Authorization: Bearer <MCP_GATE_TOKEN>` | required if `MCP_GATE_TOKEN` is set | Optional shared bearer that gates access to the MCP endpoint itself |
-| `Mcp-Session-Id` | after initialise | Session ID returned by the server on `initialize` |
+| `Mcp-Session-Id` | no | Only meaningful when `MCP_SESSIONS=1` (see below). Harmless otherwise — a session id the server does not recognise is ignored, not rejected. |
 
 Both Kitchen headers may instead be supplied via the `KITCHEN_API_KEY` / `KITCHEN_WORKSPACE` env vars for single-tenant deployments.
+
+### Sessions are off by default
+
+The server answers every request on its own, without needing to have
+seen an `initialize` from that client first. This is deliberate.
+
+MCP session state lives in the serving process's memory. On a serverless
+host — Vercel, Lambda, Cloud Run scaled to zero — the next request lands
+in *different* memory, so a session id minted by one request 404s on the
+next, and the client reports the connector as randomly broken. Nothing
+this server does needs session affinity: there are no subscriptions, no
+sampling, no server-initiated messages.
+
+Consequences worth knowing:
+
+- `initialize` returns no `Mcp-Session-Id`, and a stale one from before a
+  redeploy is ignored rather than refused.
+- `GET /mcp` answers `405` — there is no standalone SSE stream to open.
+  Clients treat this as "no server-initiated messages", which is true.
+- Responses are plain JSON, not a one-message SSE stream. More proxies
+  and hosted clients handle that correctly.
+- Replies tolerate `Accept: application/json` alone, which several real
+  clients send despite the spec asking for both media types.
+
+Set `MCP_SESSIONS=1` only on a single long-lived process (Fly.io,
+a container, a VM).
 
 ### Claude Desktop example
 
@@ -59,6 +85,65 @@ Both Kitchen headers may instead be supplied via the `KITCHEN_API_KEY` / `KITCHE
   }
 }
 ```
+
+### Grok (xAI)
+
+Two different routes, depending on what "Grok" means here.
+
+**The Grok app** (grok.com) — `Connectors` → `New Connector` → `Custom`,
+then paste `https://<your-host>/mcp`. Grok's servers call the URL from
+the public internet, so the host must be publicly reachable; a localhost
+server needs a tunnel. Authentication is whatever the server asks for,
+which for this one is the OAuth flow at `/oauth/authorize` (so
+`MCP_GATE_TOKEN` must be set — it doubles as the login password).
+
+**The xAI API** — Grok connects to MCP servers itself when you pass one
+in the `tools` array. No OAuth needed: `authorization` sets the
+`Authorization` header and `extra_headers` carries the rest, so the
+static-token path works directly.
+
+```python
+from xai_sdk import Client
+from xai_sdk.chat import user
+from xai_sdk.tools import mcp
+
+client = Client(api_key=os.environ["XAI_API_KEY"])
+chat = client.chat.create(
+    model="grok-4.7",
+    tools=[
+        mcp(
+            server_url="https://<your-host>/mcp",
+            server_label="kitchen",
+            server_description="Kitchen.co client portal and the deliverable workflow.",
+            authorization=os.environ["MCP_GATE_TOKEN"],
+            extra_headers={
+                "X-Kitchen-API-Key": os.environ["KITCHEN_API_KEY"],
+                "X-Kitchen-Workspace": "acme",
+            },
+            # Omit to expose all ~120 tools. Naming them keeps the model
+            # focused and, for a read-only subset, keeps it harmless.
+            allowed_tool_names=[
+                "workflow_board_status",
+                "workflow_get_deliverable",
+                "workflow_compliance_preview",
+                "kitchen_list_boards",
+                "kitchen_list_tasks",
+            ],
+        )
+    ],
+)
+chat.append(user("What is sitting in compliance review?"))
+print(chat.sample().content)
+```
+
+On the OpenAI-compatible Responses API the same thing is
+`{"type": "mcp", "server_url": ..., "server_label": ..., "authorization": ...,
+"headers": {...}, "allowed_tools": [...]}`. `require_approval` and
+`connector_id` are not supported there.
+
+Note that `ALLOWED_ORIGINS` does **not** gate either route: a
+server-to-server caller sends no `Origin` header and is allowed through
+by design. Endpoint access is `MCP_GATE_TOKEN`'s job.
 
 ## Security model
 
@@ -156,6 +241,8 @@ curl -X POST http://127.0.0.1:3000/webhooks/kitchen \
 fly launch --no-deploy --copy-config --name kitchen-mcp
 fly secrets set MCP_GATE_TOKEN=$(openssl rand -hex 32) \
                 ALLOWED_ORIGINS=https://claude.ai
+# One long-lived process, so stateful sessions are safe here.
+fly secrets set MCP_SESSIONS=1
 fly deploy
 ```
 
@@ -175,13 +262,36 @@ gcloud run deploy kitchen-mcp \
 
 Standard Node web service — set `PORT`, `ALLOWED_ORIGINS`, `MCP_GATE_TOKEN`, run `npm start`.
 
+### Vercel
+
+`src/server.ts` is the entrypoint. It imports `buildApp` from the
+pre-built `dist/http.js` rather than from `src/`, because `@vercel/node`
+runs its own `tsc` pass with different compiler options and will not
+build the TypeScript sources correctly.
+
+Leave `MCP_SESSIONS` unset. Serverless functions do not share memory
+between invocations, so stateful MCP sessions break on the first cold
+start. `GET /healthz` reports `mcp.sessions` and `mcp.gated` so you can
+confirm what the deployed function actually has.
+
 ## Development
 
 ```bash
 npm install
 npm run dev        # tsx watch
 npm run typecheck
+npm test           # workflow logic + HTTP transport
 ```
+
+`scripts/test-workflow.mjs` covers the state machine, gates, compliance
+rules, the metadata and evidence codecs, and the AU state regimes.
+
+`scripts/test-transport.mjs` boots the real app on an ephemeral port and
+exercises `/mcp` the way awkward clients do: a stingy `Accept` header, a
+stale session id, a `tools/call` with no preceding `initialize`, a bare
+`GET`, a missing gate token. Those are the failures that read as "the
+connector is broken", and none of them is visible from testing the tools
+directly.
 
 ## Rate limits
 
