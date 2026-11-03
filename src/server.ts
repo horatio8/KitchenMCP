@@ -13,10 +13,11 @@
 // Local/Docker deployments still run via src/index.ts which calls
 // app.listen() — completely independent of this file.
 //
-// NOTE: On serverless targets the /mcp endpoint is unreliable —
-// session state lives in memory and is lost across cold starts.
-// /webhooks/kitchen is fine (stateless verify + ack + fire-and-forget
-// dispatch).
+// Both endpoints are safe on a serverless target. /webhooks/kitchen
+// verifies, acks and dispatches without holding state, and /mcp serves
+// each request on its own unless MCP_SESSIONS=1 — which must stay unset
+// here, since nothing guarantees the next invocation reuses this
+// instance's memory. See the session note in src/mcp.ts.
 
 import express from "express";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment

@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { KitchenCredentials } from "./kitchen/credentials.js";
 import { extractKitchenCredentials } from "./kitchen/credentials.js";
 import { logger } from "./logger.js";
-import { buildToolRegistry } from "./tools/index.js";
+import { buildToolRegistry, type ToolRegistry } from "./tools/index.js";
 
 interface Session {
   transport: StreamableHTTPServerTransport;
@@ -60,6 +60,18 @@ if (USE_SESSIONS) {
   setInterval(reapIdleSessions, 60_000).unref();
 }
 
+/**
+ * The registry holds tool definitions only, and `bind` attaches them to
+ * a server without mutating either. Building it once matters now that
+ * the stateless path creates a server per request: otherwise every call
+ * would reconstruct ~120 Zod schemas before doing any work.
+ */
+let cachedRegistry: ToolRegistry | null = null;
+function toolRegistry(): ToolRegistry {
+  cachedRegistry ??= buildToolRegistry();
+  return cachedRegistry;
+}
+
 function buildMcpServer(getCredentials: () => KitchenCredentials): McpServer {
   const server = new McpServer(
     { name: "kitchen-mcp-server", version: "0.1.0" },
@@ -69,8 +81,7 @@ function buildMcpServer(getCredentials: () => KitchenCredentials): McpServer {
         "Tools for the Kitchen.co client-portal API. Credentials are supplied per HTTP request via headers (X-Kitchen-API-Key + X-Kitchen-Workspace) and never logged. Use kitchen_request as an escape hatch for endpoints without dedicated tools.",
     },
   );
-  const registry = buildToolRegistry();
-  registry.bind(server, () => ({ credentials: getCredentials() }));
+  toolRegistry().bind(server, () => ({ credentials: getCredentials() }));
   return server;
 }
 
