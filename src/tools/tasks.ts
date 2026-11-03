@@ -2,6 +2,19 @@ import { z } from "zod";
 import type { ToolRegistry } from "./registry.js";
 import { expandShape, paginationShape, pickQuery } from "./common.js";
 
+/**
+ * Tasks and everything hanging off them.
+ *
+ * Almost all of this is nested under the task: subtasks, subtask lists,
+ * comments, labels, members and custom field values are all addressed
+ * as `/api/tasks/{task}/…/{id}`, never as a top-level resource. Writing
+ * to a flat `/api/subtasks/{id}` silently 404s.
+ *
+ * Note this is the Tasks API. The Cards API (`/api/cards`, with its own
+ * card-labels, card-members and card-custom-fields) is the predecessor
+ * and is documented as deprecated and scheduled for removal, so it is
+ * deliberately not exposed here.
+ */
 export function registerTaskTools(reg: ToolRegistry): void {
   reg.addCall({
     name: "kitchen_list_tasks",
@@ -60,18 +73,30 @@ export function registerTaskTools(reg: ToolRegistry): void {
   reg.addCall({
     name: "kitchen_create_task",
     description:
-      "Create a task on a board. Requires board_id, list (list ID), and title.",
+      "Create a task on a board. board_id, list and title are required. A task takes a single 'assignee', not a members array — add further people with kitchen_add_task_member, and labels with kitchen_add_task_label.",
     method: "POST",
     inputSchema: {
       board_id: z.string().describe("Board ID (tskb_…) the task belongs to."),
-      list: z.string().describe("List ID (column) the task belongs to."),
+      list: z.string().describe("List ID (column) the task belongs to. Required."),
       title: z.string(),
-      description: z.string().optional(),
-      members: z.array(z.string()).optional().describe("User IDs to assign."),
+      description: z
+        .string()
+        .optional()
+        .describe("Accepts an HTML string to format the content."),
+      assignee: z.string().optional().describe("User ID to assign (one only)."),
       due_at: z.string().optional().describe("ISO 8601 due date."),
-      starts_at: z.string().optional().describe("ISO 8601 start date."),
-      milestone: z.string().optional().describe("Milestone ID."),
-      labels: z.array(z.string()).optional().describe("Label IDs."),
+      start_at: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("ISO 8601 start date. Note: start_at, not starts_at."),
+      due_reminder: z
+        .string()
+        .optional()
+        .describe("ISO 8601 time at which a due reminder is sent."),
+      milestone: z.string().nullable().optional().describe("Milestone ID (mst_…)."),
+      parent: z.string().optional().describe("Parent task ID (tsk_…)."),
+      remaining_minutes_estimate: z.number().int().optional(),
     },
     buildRequest: ({ board_id, ...body }) => ({
       path: `/api/boards/${encodeURIComponent(board_id)}/tasks`,
@@ -87,9 +112,16 @@ export function registerTaskTools(reg: ToolRegistry): void {
       id: z.string(),
       title: z.string().optional(),
       description: z.string().optional(),
+      assignee: z.string().nullable().optional(),
       due_at: z.string().nullable().optional(),
-      starts_at: z.string().nullable().optional(),
+      start_at: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("ISO 8601. Note: start_at, not starts_at."),
+      due_reminder: z.string().nullable().optional(),
       milestone: z.string().nullable().optional(),
+      remaining_minutes_estimate: z.number().int().optional(),
       list: z.string().optional().describe("List ID to move the task into."),
     },
     buildRequest: ({ id, ...rest }) => ({
@@ -132,28 +164,109 @@ export function registerTaskTools(reg: ToolRegistry): void {
     }),
   });
 
-  // Subtasks
+  /* ---------------------------------------------------------------- */
+  /* Subtask lists (checklists)                                        */
+  /* ---------------------------------------------------------------- */
+
+  reg.addCall({
+    name: "kitchen_list_subtask_lists",
+    description:
+      "List a task's subtask lists (checklists). A subtask must belong to one of these, so call this — or create one — before kitchen_create_subtask.",
+    readOnly: true,
+    method: "GET",
+    inputSchema: { task_id: z.string(), ...paginationShape, ...expandShape },
+    buildRequest: ({ task_id, ...rest }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/subtask-lists`,
+      query: pickQuery(rest, ["page", "per_page", "expand"]),
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_get_subtask_list",
+    description: "Get one subtask list on a task.",
+    readOnly: true,
+    method: "GET",
+    inputSchema: { task_id: z.string(), id: z.string(), ...expandShape },
+    buildRequest: ({ task_id, id, expand }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/subtask-lists/${encodeURIComponent(id)}`,
+      query: expand ? { expand } : undefined,
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_create_subtask_list",
+    description:
+      "Create a subtask list (checklist) on a task. The field is 'name', not 'title'.",
+    method: "POST",
+    inputSchema: { task_id: z.string(), name: z.string() },
+    buildRequest: ({ task_id, name }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/subtask-lists`,
+      body: { name },
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_update_subtask_list",
+    description: "Rename a subtask list.",
+    method: "PUT",
+    inputSchema: { task_id: z.string(), id: z.string(), name: z.string().optional() },
+    buildRequest: ({ task_id, id, ...rest }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/subtask-lists/${encodeURIComponent(id)}`,
+      body: rest,
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_delete_subtask_list",
+    description: "Delete a subtask list from a task.",
+    destructive: true,
+    method: "DELETE",
+    inputSchema: { task_id: z.string(), id: z.string() },
+    buildRequest: ({ task_id, id }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/subtask-lists/${encodeURIComponent(id)}`,
+    }),
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Subtasks — nested under the task, and each needs a subtask list.  */
+  /* ---------------------------------------------------------------- */
+
   reg.addCall({
     name: "kitchen_list_subtasks",
     description: "List subtasks for a parent task.",
     readOnly: true,
     method: "GET",
-    inputSchema: { task_id: z.string(), ...paginationShape },
+    inputSchema: { task_id: z.string(), ...paginationShape, ...expandShape },
     buildRequest: ({ task_id, ...rest }) => ({
       path: `/api/tasks/${encodeURIComponent(task_id)}/subtasks`,
-      query: pickQuery(rest, ["page", "per_page"]),
+      query: pickQuery(rest, ["page", "per_page", "expand"]),
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_get_subtask",
+    description: "Get one subtask.",
+    readOnly: true,
+    method: "GET",
+    inputSchema: { task_id: z.string(), id: z.string(), ...expandShape },
+    buildRequest: ({ task_id, id, expand }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/subtasks/${encodeURIComponent(id)}`,
+      query: expand ? { expand } : undefined,
     }),
   });
 
   reg.addCall({
     name: "kitchen_create_subtask",
-    description: "Create a subtask on a parent task.",
+    description:
+      "Create a subtask on a parent task. subtask_list is required — get one from kitchen_list_subtask_lists or create it with kitchen_create_subtask_list first.",
     method: "POST",
     inputSchema: {
       task_id: z.string(),
       title: z.string(),
-      assignees: z.array(z.string()).optional(),
-      due_date: z.string().optional(),
+      subtask_list: z
+        .string()
+        .describe("Subtask list ID (tskl_…) to create it in. Required."),
+      due_at: z.string().nullable().optional().describe("Y-m-d, e.g. 2026-03-25."),
     },
     buildRequest: ({ task_id, ...rest }) => ({
       path: `/api/tasks/${encodeURIComponent(task_id)}/subtasks`,
@@ -164,15 +277,15 @@ export function registerTaskTools(reg: ToolRegistry): void {
   reg.addCall({
     name: "kitchen_update_subtask",
     description: "Update a subtask.",
-    method: "PATCH",
+    method: "PUT",
     inputSchema: {
-      id: z.string(),
+      task_id: z.string().describe("Parent task ID (tsk_…)."),
+      id: z.string().describe("Subtask ID."),
       title: z.string().optional(),
-      completed: z.boolean().optional(),
-      due_date: z.string().nullable().optional(),
+      due_at: z.string().nullable().optional().describe("Y-m-d, e.g. 2026-03-25."),
     },
-    buildRequest: ({ id, ...rest }) => ({
-      path: `/api/subtasks/${encodeURIComponent(id)}`,
+    buildRequest: ({ task_id, id, ...rest }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/subtasks/${encodeURIComponent(id)}`,
       body: rest,
     }),
   });
@@ -182,20 +295,37 @@ export function registerTaskTools(reg: ToolRegistry): void {
     description: "Permanently delete a subtask.",
     destructive: true,
     method: "DELETE",
-    inputSchema: { id: z.string() },
-    buildRequest: ({ id }) => ({ path: `/api/subtasks/${encodeURIComponent(id)}` }),
+    inputSchema: { task_id: z.string(), id: z.string() },
+    buildRequest: ({ task_id, id }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/subtasks/${encodeURIComponent(id)}`,
+    }),
   });
 
-  // Task comments
+  /* ---------------------------------------------------------------- */
+  /* Task comments                                                     */
+  /* ---------------------------------------------------------------- */
+
   reg.addCall({
     name: "kitchen_list_task_comments",
     description: "List comments on a task.",
     readOnly: true,
     method: "GET",
-    inputSchema: { task_id: z.string(), ...paginationShape },
+    inputSchema: { task_id: z.string(), ...paginationShape, ...expandShape },
     buildRequest: ({ task_id, ...rest }) => ({
       path: `/api/tasks/${encodeURIComponent(task_id)}/comments`,
-      query: pickQuery(rest, ["page", "per_page"]),
+      query: pickQuery(rest, ["page", "per_page", "expand"]),
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_get_task_comment",
+    description: "Get one comment on a task.",
+    readOnly: true,
+    method: "GET",
+    inputSchema: { task_id: z.string(), id: z.string(), ...expandShape },
+    buildRequest: ({ task_id, id, expand }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/comments/${encodeURIComponent(id)}`,
+      query: expand ? { expand } : undefined,
     }),
   });
 
@@ -226,15 +356,140 @@ export function registerTaskTools(reg: ToolRegistry): void {
     }),
   });
 
-  // Task labels / members / notes
+  reg.addCall({
+    name: "kitchen_update_task_comment",
+    description:
+      "Edit a comment on a task. Note that the workflow audit trail is built from comments: correcting a typo is fine, but rewriting a recorded gate pass or client approval destroys the evidence that it said something else. Post a correcting comment instead.",
+    method: "PUT",
+    inputSchema: {
+      task_id: z.string(),
+      id: z.string().describe("Comment ID (msg_…)."),
+      content: z.string().min(1),
+    },
+    buildRequest: ({ task_id, id, content }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/comments/${encodeURIComponent(id)}`,
+      body: { content },
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_delete_task_comment",
+    description:
+      "Permanently delete a comment on a task. Irreversible, and it removes part of the audit trail — prefer a correcting comment.",
+    destructive: true,
+    method: "DELETE",
+    inputSchema: { task_id: z.string(), id: z.string() },
+    buildRequest: ({ task_id, id }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/comments/${encodeURIComponent(id)}`,
+    }),
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Task notes — internal, unlike comments.                           */
+  /* ---------------------------------------------------------------- */
+
+  reg.addCall({
+    name: "kitchen_list_task_notes",
+    description:
+      "List the internal notes on a task. Notes are separate from comments and are not part of the client-visible thread.",
+    readOnly: true,
+    method: "GET",
+    inputSchema: {
+      task_id: z.string(),
+      ...paginationShape,
+      ...expandShape,
+      content: z.string().optional().describe("Content to search for."),
+    },
+    buildRequest: ({ task_id, ...rest }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/notes`,
+      query: pickQuery(rest, ["page", "per_page", "expand", "content"]),
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_get_task_note",
+    description: "Get one internal note on a task.",
+    readOnly: true,
+    method: "GET",
+    inputSchema: { task_id: z.string(), id: z.string(), ...expandShape },
+    buildRequest: ({ task_id, id, expand }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/notes/${encodeURIComponent(id)}`,
+      query: expand ? { expand } : undefined,
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_create_task_note",
+    description:
+      "Add an internal note to a task. format is required. Use this for working notes that should not appear to the client; use kitchen_create_task_comment for anything that forms part of the record.",
+    method: "POST",
+    inputSchema: {
+      task_id: z.string(),
+      content: z.string().min(1),
+      format: z
+        .enum(["text", "html"])
+        .default("text")
+        .describe("Required by the Kitchen API."),
+    },
+    buildRequest: ({ task_id, content, format }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/notes`,
+      body: { content, format: format ?? "text" },
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_update_task_note",
+    description: "Edit an internal note on a task.",
+    method: "PUT",
+    inputSchema: {
+      task_id: z.string(),
+      id: z.string(),
+      content: z.string().min(1),
+    },
+    buildRequest: ({ task_id, id, content }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/notes/${encodeURIComponent(id)}`,
+      body: { content },
+    }),
+  });
+
+  reg.addCall({
+    name: "kitchen_delete_task_note",
+    description: "Permanently delete an internal note on a task.",
+    destructive: true,
+    method: "DELETE",
+    inputSchema: { task_id: z.string(), id: z.string() },
+    buildRequest: ({ task_id, id }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/notes/${encodeURIComponent(id)}`,
+    }),
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Task labels and members                                           */
+  /* ---------------------------------------------------------------- */
+
+  reg.addCall({
+    name: "kitchen_list_task_labels",
+    description: "List the labels applied to a task.",
+    readOnly: true,
+    method: "GET",
+    inputSchema: { task_id: z.string() },
+    buildRequest: ({ task_id }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/labels`,
+    }),
+  });
+
   reg.addCall({
     name: "kitchen_add_task_label",
-    description: "Add an existing label to a task.",
+    description:
+      "Add an existing label to a task. Labels are board-scoped — use kitchen_list_labels with the task's board to find the id.",
     method: "POST",
-    inputSchema: { task_id: z.string(), label_id: z.string() },
-    buildRequest: ({ task_id, label_id }) => ({
+    inputSchema: {
+      task_id: z.string(),
+      label: z.string().describe("Label ID (lbl_…)."),
+    },
+    buildRequest: ({ task_id, label }) => ({
       path: `/api/tasks/${encodeURIComponent(task_id)}/labels`,
-      body: { label_id },
+      body: { label },
     }),
   });
 
@@ -249,13 +504,27 @@ export function registerTaskTools(reg: ToolRegistry): void {
   });
 
   reg.addCall({
+    name: "kitchen_list_task_members",
+    description: "List the members assigned to a task.",
+    readOnly: true,
+    method: "GET",
+    inputSchema: { task_id: z.string() },
+    buildRequest: ({ task_id }) => ({
+      path: `/api/tasks/${encodeURIComponent(task_id)}/members`,
+    }),
+  });
+
+  reg.addCall({
     name: "kitchen_add_task_member",
     description: "Assign a member to a task.",
     method: "POST",
-    inputSchema: { task_id: z.string(), user_id: z.string() },
-    buildRequest: ({ task_id, user_id }) => ({
+    inputSchema: {
+      task_id: z.string(),
+      user: z.string().describe("User ID (u_…)."),
+    },
+    buildRequest: ({ task_id, user }) => ({
       path: `/api/tasks/${encodeURIComponent(task_id)}/members`,
-      body: { user_id },
+      body: { user },
     }),
   });
 

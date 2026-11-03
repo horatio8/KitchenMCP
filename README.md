@@ -162,21 +162,51 @@ by design. Endpoint access is `MCP_GATE_TOKEN`'s job.
 
 ## Available tools
 
-Tool names follow the pattern `kitchen_<verb>_<resource>`. A non-exhaustive overview:
+163 tools: 144 `kitchen_*` covering the API surface, 19 `workflow_*` for the
+deliverable lifecycle. Call `tools/list` for the schema-rich catalogue.
 
-- Tasks: `kitchen_list_tasks`, `kitchen_get_task`, `kitchen_create_task`, `kitchen_update_task`, `kitchen_delete_task`, `kitchen_toggle_task_completion`, `kitchen_move_tasks`
-- Subtasks: `kitchen_list_subtasks`, `kitchen_create_subtask`, `kitchen_update_subtask`, `kitchen_delete_subtask`
-- Task labels/members/comments: `kitchen_add_task_label`, `kitchen_remove_task_label`, `kitchen_add_task_member`, `kitchen_remove_task_member`, `kitchen_list_task_comments`, `kitchen_create_task_comment`
-- Docs: `kitchen_list_docs`, `kitchen_get_doc`, `kitchen_create_doc`, `kitchen_update_doc`, `kitchen_archive_doc`, `kitchen_restore_doc`, `kitchen_move_doc`, `kitchen_delete_doc` + doc memberships
-- Clients & companies: full CRUD
-- Invoices & recurring invoices: list/get/create/update/archive/restore/delete
-- Conversations & messages: full CRUD + archive/restore
-- Structure: boards, lists, folders, milestones, labels, members, templates
-- Webhooks: CRUD
-- Files: `kitchen_create_file_upload`, `kitchen_complete_file`, `kitchen_get_file`, `kitchen_delete_file`
-- Low-level: `kitchen_request` — any `/api/...` path
+- **Tasks**: list/get/create/update/delete, toggle completion, move
+- **Subtask lists and subtasks**: full CRUD. A subtask needs a subtask
+  list, so create or pick one first
+- **Task comments, notes, labels, members, custom field values**: full CRUD
+- **Custom fields**: definitions per board, values per task
+- **Boards, lists, folders, milestones**: CRUD + move/archive/restore
+- **Labels**: CRUD, per board
+- **Docs**: CRUD + move/archive/restore, plus memberships
+- **Conversations, messages, conversation notes**: CRUD + move/archive/restore
+- **Clients and companies**: full CRUD
+- **Invoices and recurring invoices**: CRUD + move/archive/restore
+- **Templates, members, files, webhooks**: CRUD
+- **Low-level**: `kitchen_request` — any `/api/...` path
 
-Call `tools/list` from your MCP client for the full, schema-rich catalogue.
+The deprecated Cards API (`/api/cards` and its card-labels, card-members
+and card-custom-fields siblings) is deliberately not exposed; Kitchen
+documents it as scheduled for removal in favour of Tasks.
+
+### Shape of the API, which is not the obvious one
+
+Worth knowing before adding a tool, because none of these produce a type
+error — they produce a 404, a 422, or a 200 that silently ignored the
+field you sent:
+
+| Expectation | Reality |
+|---|---|
+| `PATCH` to update | Every update is `PUT`. There is no `PATCH` route |
+| Labels are workspace-wide | Board-scoped: `/api/boards/{board}/labels` |
+| Custom fields are workspace-wide | Defined per board; values set per task |
+| `/api/subtasks/{id}` | `/api/tasks/{task}/subtasks/{id}` |
+| `/api/messages/{id}` | `/api/conversations/{conv}/messages/{id}` |
+| `folder_id` on create | `folder` on create; `parent` on `/move` |
+| `visibility` optional | Required on create for every container |
+| Everything has a `title` | Folders, subtask lists and templates take `name` |
+| A task has `members` | One `assignee`; add the rest afterwards |
+| A task has `starts_at` | `start_at` |
+| Comments just need content | `format` is required or it 422s |
+| An invoice has a `title` and `due_date` | Neither. Due is `due_date_in_days` from finalisation |
+
+`scripts/test-api-contract.mjs` asserts all of this from the tool
+definitions, with no network calls, so the next slip fails the build
+instead of a request.
 
 ## Webhook receiver
 
@@ -285,6 +315,11 @@ npm test           # workflow logic + HTTP transport
 
 `scripts/test-workflow.mjs` covers the state machine, gates, compliance
 rules, the metadata and evidence codecs, and the AU state regimes.
+
+`scripts/test-api-contract.mjs` asserts every tool's method, path and
+payload keys against what developer.kitchen.co documents — see the table
+above. It reads the declared request specs rather than issuing requests,
+so it is fast and offline.
 
 `scripts/test-transport.mjs` boots the real app on an ephemeral port and
 exercises `/mcp` the way awkward clients do: a stingy `Accept` header, a

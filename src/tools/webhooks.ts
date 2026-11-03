@@ -40,13 +40,16 @@ export function registerWebhookTools(reg: ToolRegistry): void {
 
   reg.addCall({
     name: "kitchen_update_webhook",
-    description: "Update a webhook.",
-    method: "PATCH",
+    description: "Update a webhook. Set enabled: false to stop deliveries without deleting it.",
+    method: "PUT",
     inputSchema: {
       id: z.string(),
       url: z.string().url().optional(),
       events: z.array(z.string()).optional(),
-      description: z.string().optional(),
+      enabled: z
+        .boolean()
+        .optional()
+        .describe("Whether event sending is enabled."),
     },
     buildRequest: ({ id, ...rest }) => ({
       path: `/api/webhooks/${encodeURIComponent(id)}`,

@@ -58,8 +58,36 @@ function toErrorResult(err: unknown): CallToolResult {
   };
 }
 
+/**
+ * A tool's declared HTTP contract, for tools registered with addCall.
+ *
+ * Exposed so the contract can be asserted in tests without issuing
+ * requests. The Kitchen API's shape is not guessable — labels and
+ * custom fields are board-scoped, subtasks and comments are nested
+ * under their task, updates are PUT and never PATCH — and every one of
+ * those was originally got wrong by assuming the obvious REST layout.
+ * A test that reads these specs catches the next such slip at build
+ * time instead of at the first 404 in production.
+ */
+export interface ToolSpec {
+  name: string;
+  method: Method;
+  readOnly: boolean;
+  destructive: boolean;
+  /** Build the request the tool would issue for these arguments. */
+  buildRequest: (input: any) => { path: string; query?: Record<string, unknown>; body?: unknown };
+  /** The Zod shape, so a test can synthesise valid arguments. */
+  inputSchema: ZodRawShape | undefined;
+}
+
 export class ToolRegistry {
   private readonly tools: Array<(server: McpServer, ctxProvider: () => ToolContext) => void> = [];
+  private readonly specs: ToolSpec[] = [];
+
+  /** Declared HTTP contracts for every addCall-registered tool. */
+  describe(): readonly ToolSpec[] {
+    return this.specs;
+  }
 
   add<Shape extends ZodRawShape>(def: ToolDef<Shape>): void {
     this.tools.push((server, ctxProvider) => {
@@ -107,6 +135,14 @@ export class ToolRegistry {
       ) => { path: string; query?: Record<string, unknown>; body?: unknown };
     },
   ): void {
+    this.specs.push({
+      name: def.name,
+      method: def.method,
+      readOnly: def.readOnly ?? false,
+      destructive: def.destructive ?? false,
+      buildRequest: def.buildRequest as ToolSpec["buildRequest"],
+      inputSchema: def.inputSchema,
+    });
     this.add<Shape>({
       ...def,
       handler: async (input, ctx) => {

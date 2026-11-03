@@ -367,7 +367,10 @@ export async function createDeliverable(
       title: args.title,
       description,
       ...(args.dueAt ? { due_at: args.dueAt } : {}),
-      ...(args.assignee ? { members: [args.assignee] } : {}),
+      // The Tasks API takes a single `assignee`, not a members array.
+      // Sending `members` is accepted and silently ignored, which looks
+      // exactly like a deliverable nobody owns.
+      ...(args.assignee ? { assignee: args.assignee } : {}),
     },
   })) as { data?: { id: string } };
 

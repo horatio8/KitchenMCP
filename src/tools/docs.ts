@@ -34,12 +34,23 @@ export function registerDocTools(reg: ToolRegistry): void {
 
   reg.addCall({
     name: "kitchen_create_doc",
-    description: "Create a new doc.",
+    description:
+      "Create a doc. visibility is required. Note the doc's text is not settable here — the API takes a 'description', not page content.",
     method: "POST",
     inputSchema: {
       title: z.string(),
-      content: z.string().optional(),
-      folder_id: z.string().optional(),
+      visibility: z
+        .enum(["private", "internal", "shared"])
+        .default("private")
+        .describe("Required by the API."),
+      description: z.string().optional(),
+      folder: z.string().optional().describe("Folder ID (fo_…) to create it in."),
+      role: z
+        .string()
+        .optional()
+        .describe(
+          "Default team role when visibility is 'internal', e.g. document_admin, document_editor, document_viewer.",
+        ),
     },
     buildRequest: (input) => ({ path: "/api/docs", body: input }),
   });
@@ -47,11 +58,12 @@ export function registerDocTools(reg: ToolRegistry): void {
   reg.addCall({
     name: "kitchen_update_doc",
     description: "Update a doc.",
-    method: "PATCH",
+    method: "PUT",
     inputSchema: {
       id: z.string(),
       title: z.string().optional(),
-      content: z.string().optional(),
+      description: z.string().optional(),
+      visibility: z.enum(["private", "internal", "shared"]).optional(),
     },
     buildRequest: ({ id, ...rest }) => ({
       path: `/api/docs/${encodeURIComponent(id)}`,
@@ -81,12 +93,13 @@ export function registerDocTools(reg: ToolRegistry): void {
 
   reg.addCall({
     name: "kitchen_move_doc",
-    description: "Move a doc into a folder.",
+    description:
+      "Move a doc into a folder. Pass parent: null to move it to the root.",
     method: "POST",
-    inputSchema: { id: z.string(), folder_id: z.string().nullable() },
-    buildRequest: ({ id, folder_id }) => ({
+    inputSchema: { id: z.string(), parent: z.string().nullable() },
+    buildRequest: ({ id, parent }) => ({
       path: `/api/docs/${encodeURIComponent(id)}/move`,
-      body: { folder_id },
+      body: { parent },
     }),
   });
 

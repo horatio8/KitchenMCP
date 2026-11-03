@@ -1,6 +1,7 @@
 import { ToolRegistry } from "./registry.js";
 import { registerClientTools } from "./clients.js";
 import { registerConversationTools } from "./conversations.js";
+import { registerCustomFieldTools } from "./custom-fields.js";
 import { registerDocTools } from "./docs.js";
 import { registerFileTools } from "./files.js";
 import { registerInvoiceTools } from "./invoices.js";
@@ -20,6 +21,7 @@ export function buildToolRegistry(): ToolRegistry {
   registerStructureTools(reg);
   registerWebhookTools(reg);
   registerFileTools(reg);
+  registerCustomFieldTools(reg);
   registerWorkflowTools(reg);
   registerRawTool(reg);
   return reg;
