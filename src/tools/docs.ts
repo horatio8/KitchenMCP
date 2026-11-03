@@ -124,14 +124,32 @@ export function registerDocTools(reg: ToolRegistry): void {
     }),
   });
 
+  const docRole = z
+    .enum([
+      "document_admin",
+      "document_manager",
+      "document_editor",
+      "document_viewer",
+    ])
+    .describe("Required by the API.");
+
   reg.addCall({
     name: "kitchen_create_doc_membership",
-    description: "Add a user to a doc.",
+    description:
+      "Give a user or a company access to a doc. role is required, and you pass either 'user' or 'company', not both. Omit 'notification' and nobody is emailed.",
     method: "POST",
     inputSchema: {
       doc_id: z.string(),
-      user_id: z.string(),
-      role: z.string().optional(),
+      role: docRole,
+      user: z.string().optional().describe("User ID (u_…). Either this or company."),
+      company: z
+        .string()
+        .optional()
+        .describe("Company ID (co_…). Either this or user."),
+      notification: z
+        .string()
+        .optional()
+        .describe("Message to send them. Omit to add them silently."),
     },
     buildRequest: ({ doc_id, ...rest }) => ({
       path: `/api/docs/${encodeURIComponent(doc_id)}/memberships`,
@@ -140,10 +158,28 @@ export function registerDocTools(reg: ToolRegistry): void {
   });
 
   reg.addCall({
+    name: "kitchen_update_doc_membership",
+    description: "Change a doc membership's role.",
+    method: "PUT",
+    inputSchema: {
+      doc_id: z.string(),
+      membership_id: z.string().describe("Membership ID (nms_…)."),
+      role: docRole,
+    },
+    buildRequest: ({ doc_id, membership_id, role }) => ({
+      path: `/api/docs/${encodeURIComponent(doc_id)}/memberships/${encodeURIComponent(membership_id)}`,
+      body: { role },
+    }),
+  });
+
+  reg.addCall({
     name: "kitchen_delete_doc_membership",
-    description: "Remove a user from a doc.",
+    description: "Remove a user or company from a doc.",
     method: "DELETE",
-    inputSchema: { doc_id: z.string(), membership_id: z.string() },
+    inputSchema: {
+      doc_id: z.string(),
+      membership_id: z.string().describe("Membership ID (nms_…)."),
+    },
     buildRequest: ({ doc_id, membership_id }) => ({
       path: `/api/docs/${encodeURIComponent(doc_id)}/memberships/${encodeURIComponent(membership_id)}`,
     }),

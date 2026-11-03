@@ -361,6 +361,35 @@ expectBodyKeys("kitchen_create_invoice", ["client", "items"]);
 expectNoBodyKeys("kitchen_create_invoice", ["client_id", "title", "auto_charge", "due_date"]);
 expectBodyKeys("kitchen_create_invoice", ["due_date_in_days"]);
 
+section("files: upload is filename-only, three steps");
+expectCall("kitchen_create_file_upload", "POST", "/api/files");
+expectBodyKeys("kitchen_create_file_upload", ["filename"]);
+// size and mime_type are inferred from the uploaded bytes; sending them 422s.
+expectNoBodyKeys("kitchen_create_file_upload", ["name", "size", "mime_type"]);
+expectCall("kitchen_complete_file", "POST", "/api/files/id/complete");
+expectCall("kitchen_get_file", "GET", "/api/files/id");
+expectCall("kitchen_delete_file", "DELETE", "/api/files/id");
+expectCall("kitchen_list_folder_files", "GET", "/api/folders/folder_id/files");
+expectCall("kitchen_add_folder_files", "POST", "/api/folders/folder_id/files");
+expectBodyKeys("kitchen_add_folder_files", ["files"]);
+
+section("doc memberships require a role and take user or company");
+expectCall("kitchen_list_doc_memberships", "GET", "/api/docs/doc_id/memberships");
+expectCall("kitchen_create_doc_membership", "POST", "/api/docs/doc_id/memberships");
+expectCall(
+  "kitchen_update_doc_membership",
+  "PUT",
+  "/api/docs/doc_id/memberships/membership_id",
+);
+expectCall(
+  "kitchen_delete_doc_membership",
+  "DELETE",
+  "/api/docs/doc_id/memberships/membership_id",
+);
+expectBodyKeys("kitchen_create_doc_membership", ["role", "user", "company"]);
+expectNoBodyKeys("kitchen_create_doc_membership", ["user_id"]);
+expectBodyKeys("kitchen_update_doc_membership", ["role"]);
+
 section("the deprecated Cards API is not exposed");
 {
   const cardTools = specs.filter((s) => /\/api\/cards?\b/.test(
@@ -408,6 +437,135 @@ for (const [name, entry] of byName) {
       !entry.req.path.includes("undefined"),
     entry.req.path,
   );
+}
+
+section("coverage against the documented resource families");
+{
+  // Every resource family on developer.kitchen.co, and what this server
+  // does about it. Keeping the list here means the gap is recorded in
+  // the repo rather than in somebody's memory, and that adding a family
+  // to the docs eventually shows up as a decision someone has to make.
+  //
+  // "absent" is a deliberate choice with a reason, not an oversight.
+  const FAMILIES = {
+    attachments: "absent: read-only views of files already reachable via kitchen_get_file",
+    "billing-profiles": "absent: object documentation only, no endpoints",
+    "board-memberships": "absent: not yet implemented",
+    boards: "covered",
+    "card-attachments": "absent: deprecated Cards API",
+    "card-custom-fields": "absent: deprecated Cards API",
+    "card-labels": "absent: deprecated Cards API",
+    "card-members": "absent: deprecated Cards API",
+    cards: "absent: deprecated Cards API, use tasks",
+    clients: "covered",
+    comments: "absent: generic comments; task comments are covered",
+    companies: "covered",
+    "conversation-attachments": "absent: not yet implemented",
+    "conversation-memberships": "absent: not yet implemented",
+    "conversation-notes": "covered",
+    conversations: "covered",
+    "custom-fields": "covered",
+    "doc-memberships": "covered",
+    docs: "covered",
+    "embed-memberships": "absent: not yet implemented",
+    embeds: "absent: not yet implemented",
+    "file-comments": "absent: object documentation only",
+    "file-threads": "absent: object documentation only",
+    files: "covered",
+    "folder-children": "covered",
+    "folder-files": "covered",
+    "folder-memberships": "absent: not yet implemented",
+    folders: "covered",
+    "invoice-memberships": "absent: not yet implemented",
+    invoices: "covered",
+    labels: "covered",
+    "link-memberships": "absent: not yet implemented",
+    links: "absent: not yet implemented",
+    lists: "covered",
+    members: "covered",
+    messages: "covered",
+    "milestone-memberships": "absent: not yet implemented",
+    milestones: "covered",
+    "recurring-invoices": "covered",
+    subtasks: "covered",
+    "task-attachments": "absent: not yet implemented",
+    "task-comments": "covered",
+    "task-custom-fields": "covered",
+    "task-labels": "covered",
+    "task-members": "covered",
+    "task-notes": "covered",
+    "task-subtask-lists": "covered",
+    tasks: "covered",
+    templates: "covered",
+    users: "absent: object documentation only",
+    webhooks: "covered",
+  };
+
+  const total = Object.keys(FAMILIES).length;
+  const covered = Object.values(FAMILIES).filter((v) => v === "covered").length;
+  const deprecated = Object.values(FAMILIES).filter((v) =>
+    v.includes("deprecated"),
+  ).length;
+  const objectOnly = Object.values(FAMILIES).filter((v) =>
+    v.includes("object documentation only"),
+  ).length;
+  const todo = Object.values(FAMILIES).filter((v) =>
+    v.includes("not yet implemented"),
+  ).length;
+
+  check(
+    "the family list matches the documented count",
+    total === 51,
+    `listed ${total}, sitemap has 51`,
+  );
+  check(
+    "every family has a disposition",
+    Object.values(FAMILIES).every((v) => typeof v === "string" && v.length > 0),
+  );
+  console.log(
+    `  ${covered} covered, ${todo} not yet implemented, ` +
+      `${deprecated} deprecated and excluded, ${objectOnly} object-docs only ` +
+      `(of ${total})`,
+  );
+  // Anything claimed as covered must actually have tools.
+  const prefixes = {
+    boards: "kitchen_list_boards",
+    clients: "kitchen_list_clients",
+    companies: "kitchen_list_companies",
+    "conversation-notes": "kitchen_list_conversation_notes",
+    conversations: "kitchen_list_conversations",
+    "custom-fields": "kitchen_list_custom_fields",
+    "doc-memberships": "kitchen_list_doc_memberships",
+    docs: "kitchen_list_docs",
+    files: "kitchen_get_file",
+    "folder-children": "kitchen_list_folder_children",
+    "folder-files": "kitchen_list_folder_files",
+    folders: "kitchen_list_folders",
+    invoices: "kitchen_list_invoices",
+    labels: "kitchen_list_labels",
+    lists: "kitchen_list_lists",
+    members: "kitchen_list_members",
+    messages: "kitchen_list_messages",
+    milestones: "kitchen_list_milestones",
+    "recurring-invoices": "kitchen_list_recurring_invoices",
+    subtasks: "kitchen_list_subtasks",
+    "task-comments": "kitchen_list_task_comments",
+    "task-custom-fields": "kitchen_list_task_custom_fields",
+    "task-labels": "kitchen_list_task_labels",
+    "task-members": "kitchen_list_task_members",
+    "task-notes": "kitchen_list_task_notes",
+    "task-subtask-lists": "kitchen_list_subtask_lists",
+    tasks: "kitchen_list_tasks",
+    templates: "kitchen_list_templates",
+    webhooks: "kitchen_list_webhooks",
+  };
+  for (const [family, witness] of Object.entries(prefixes)) {
+    check(
+      `${family} claimed covered has a tool`,
+      byName.has(witness),
+      `${witness} missing`,
+    );
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

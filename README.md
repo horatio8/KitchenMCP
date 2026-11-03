@@ -203,6 +203,8 @@ field you sent:
 | A task has `starts_at` | `start_at` |
 | Comments just need content | `format` is required or it 422s |
 | An invoice has a `title` and `due_date` | Neither. Due is `due_date_in_days` from finalisation |
+| A file upload takes name/size/type | Only `filename`; the rest comes from the bytes |
+| A doc membership's role is optional | Required, and it takes `user` **or** `company` |
 
 `scripts/test-api-contract.mjs` asserts all of this from the tool
 definitions, with no network calls, so the next slip fails the build
@@ -318,8 +320,19 @@ rules, the metadata and evidence codecs, and the AU state regimes.
 
 `scripts/test-api-contract.mjs` asserts every tool's method, path and
 payload keys against what developer.kitchen.co documents — see the table
-above. It reads the declared request specs rather than issuing requests,
-so it is fast and offline.
+above — and carries a manifest of all 51 documented resource families
+with a disposition for each, so the gap is recorded in the repo rather
+than in somebody's memory. It reads the declared request specs rather
+than issuing requests, so it is fast and offline.
+
+**What it does not prove.** It checks the code against our reading of
+the documentation. It does not check the documentation against the live
+API, and it issues no requests. Every bug found in the audit of
+2026-11-03 was found by reading docs — but the four bugs found before
+that (tasks nested under boards, PUT not PATCH on tasks, `visibility`
+required, `format` required) were found by live calls returning 404 and
+422. Docs are necessary and not sufficient. A real smoke test against a
+workspace is still owed.
 
 `scripts/test-transport.mjs` boots the real app on an ephemeral port and
 exercises `/mcp` the way awkward clients do: a stingy `Accept` header, a
