@@ -110,7 +110,21 @@ function htmlEscape(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function loginHtml(stateToken: string, error?: string): string {
+/**
+ * The sign-in page.
+ *
+ * `clientName` comes from the client's own dynamic registration, so it
+ * is untrusted and escaped like any other input — but showing it is
+ * worth it: this is a consent screen, and "who is asking" is the one
+ * fact the person typing the password needs. It also stops the page
+ * naming a single client when any MCP client can connect.
+ */
+function loginHtml(
+  stateToken: string,
+  error?: string,
+  clientName?: string,
+): string {
+  const asking = clientName ? htmlEscape(clientName) : "an MCP client";
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -133,7 +147,7 @@ function loginHtml(stateToken: string, error?: string): string {
 </style></head><body>
 <form class="card" method="POST" action="/oauth/authorize">
   <h1>Kitchen MCP</h1>
-  <p>Sign in to authorise Claude to call your Kitchen workspace via this MCP server.</p>
+  <p>Sign in to authorise <strong>${asking}</strong> to call your Kitchen workspace through this MCP server.</p>
   ${error ? `<div class="err">${htmlEscape(error)}</div>` : ""}
   <input type="hidden" name="state" value="${htmlEscape(stateToken)}">
   <label for="password">Access password</label>
@@ -292,7 +306,7 @@ export function buildOAuthRouter(): express.Router {
     res
       .set("Content-Type", "text/html; charset=utf-8")
       .set("Cache-Control", "no-store")
-      .send(loginHtml(requestToken));
+      .send(loginHtml(requestToken, undefined, client.client_name));
   });
 
   // ---------------- Authorize (POST) — process login, issue code ----------------
@@ -322,10 +336,20 @@ export function buildOAuthRouter(): express.Router {
     }
     if (!constantEqual(password, config.mcpGateToken)) {
       logger.warn({ ip: req.ip }, "oauth login: bad password");
+      // Re-read the client so the retry page names the same requester
+      // as the first attempt. A consent screen that forgets who is
+      // asking the moment you mistype is its own small security hole.
+      const retryClient = verifyJwt<ClientClaims>(authReq.client_id, secret);
       res
         .status(401)
         .set("Content-Type", "text/html; charset=utf-8")
-        .send(loginHtml(state, "Invalid password — try again."));
+        .send(
+          loginHtml(
+            state,
+            "Invalid password — try again.",
+            retryClient?.kind === "client" ? retryClient.client_name : undefined,
+          ),
+        );
       return;
     }
 
