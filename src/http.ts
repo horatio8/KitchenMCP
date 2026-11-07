@@ -8,6 +8,7 @@ import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { handleMcpRequest, mcpSessionsEnabled } from "./mcp.js";
 import { buildOAuthRouter, extractCredentialsFromBearer, getSigningSecret } from "./oauth/index.js";
+import { webhookDispatchBeforeAck } from "./webhooks/receiver.js";
 import { buildWebhookRouter } from "./webhooks/receiver.js";
 
 const JSON_MAX = "1mb";
@@ -222,6 +223,19 @@ export function buildApp(): express.Express {
           !config.fallbackKitchenApiKey && "KITCHEN_API_KEY",
           !config.fallbackKitchenWorkspace && "KITCHEN_WORKSPACE",
         ].filter(Boolean),
+      },
+      workflowAutomation: {
+        // Off by default: it writes into the workspace, so it is opt-in.
+        // When false, verified events are logged and dropped — which
+        // looks identical to working webhooks from Kitchen's side.
+        enabled: config.workflowAutomation,
+        // Automation needs server-side Kitchen credentials to write.
+        canWrite: Boolean(
+          config.fallbackKitchenApiKey && config.fallbackKitchenWorkspace,
+        ),
+        // On serverless, work started after the ack may never run, so
+        // the dispatch is awaited before acking instead.
+        dispatchBeforeAck: webhookDispatchBeforeAck(),
       },
       mcp: {
         endpoint: "/mcp",

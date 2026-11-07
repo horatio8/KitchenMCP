@@ -12,6 +12,19 @@ import { verifyKitchenSignature } from "./verify.js";
 
 const MAX_WEBHOOK_BYTES = 1 * 1024 * 1024; // 1 MiB cap on inbound webhook bodies
 
+/**
+ * Whether to finish dispatching before acking Kitchen.
+ *
+ * True on a serverless host, where work started after the response is
+ * not guaranteed to run. WEBHOOK_DISPATCH_BEFORE_ACK forces it either
+ * way for hosts we do not detect.
+ */
+const DISPATCH_BEFORE_ACK = (() => {
+  const override = process.env.WEBHOOK_DISPATCH_BEFORE_ACK?.trim();
+  if (override) return /^(1|true|yes|on)$/i.test(override);
+  return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+})();
+
 const dedupe = new EventDedupeStore();
 const dispatcher = new WebhookDispatcher({
   forwardUrl: config.webhookForwardUrl,
@@ -41,6 +54,11 @@ const rawJsonParser = express.raw({
  * - Idempotency: each event.id is processed at most once per 24h.
  * - Asynchronous dispatch: we ack Kitchen in <1s; user code runs after.
  */
+/** Whether dispatch is awaited before acking. Surfaced on /healthz. */
+export function webhookDispatchBeforeAck(): boolean {
+  return DISPATCH_BEFORE_ACK;
+}
+
 export function buildWebhookRouter(): express.Router {
   const router = express.Router();
 
@@ -127,9 +145,30 @@ async function handleKitchenWebhook(
     return;
   }
 
-  // Ack first, then dispatch — per Kitchen's "handle events asynchronously"
-  // best-practice. dispatch() itself does fire-and-forget for any heavy
-  // downstream work (forwarding etc.).
+  // Kitchen's best practice is to ack fast and work afterwards, which is
+  // right for a long-lived process. On a serverless host it is wrong:
+  // once the response is sent the instance can be frozen immediately,
+  // so anything started after it may simply never run. That failure is
+  // silent — the delivery shows as a success in Kitchen and nothing
+  // happened. So on serverless we finish the work first and ack after.
+  //
+  // The cost is latency on the ack. Kitchen retries on timeout, and
+  // because the dedupe store is also per-instance memory, a retry can
+  // re-run the handler and repeat a comment. Noise, not damage, and
+  // preferable to dropping every event.
+  if (DISPATCH_BEFORE_ACK) {
+    try {
+      await dispatcher.dispatch(event, category);
+    } catch (err) {
+      logger.error(
+        { eventId: event.id, type: event.type, category, err: String(err) },
+        "kitchen webhook dispatch failed",
+      );
+    }
+    res.status(200).json({ ok: true });
+    return;
+  }
+
   res.status(200).json({ ok: true });
 
   void dispatcher.dispatch(event, category).catch((err) => {
