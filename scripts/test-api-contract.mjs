@@ -193,8 +193,9 @@ expectCall("kitchen_create_label", "POST", "/api/boards/board_id/labels");
 expectCall("kitchen_update_label", "PUT", "/api/boards/board_id/labels/id");
 expectCall("kitchen_delete_label", "DELETE", "/api/boards/board_id/labels/id");
 // hex_color is required and is not called "color".
-expectBodyKeys("kitchen_create_label", ["hex_color"]);
-expectNoBodyKeys("kitchen_create_label", ["color"]);
+// Verified live: the API takes `color`; the docs' `hex_color` is wrong.
+expectBodyKeys("kitchen_create_label", ["color"]);
+expectNoBodyKeys("kitchen_create_label", ["hex_color"]);
 
 section("custom fields: definitions on the board, values on the task");
 expectCall("kitchen_list_custom_fields", "GET", "/api/boards/board_id/custom-fields");

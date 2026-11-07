@@ -84,16 +84,18 @@ export function registerTaskTools(reg: ToolRegistry): void {
         .optional()
         .describe("Accepts an HTML string to format the content."),
       assignee: z.string().optional().describe("User ID to assign (one only)."),
-      due_at: z.string().optional().describe("ISO 8601 due date."),
+      // Y-m-d on write, even though the response returns a full
+      // timestamp. ISO 8601 here 422s. Verified live 2026-11-07.
+      due_at: z.string().optional().describe("Y-m-d, e.g. 2026-11-17. Not ISO 8601."),
       start_at: z
         .string()
         .nullable()
         .optional()
-        .describe("ISO 8601 start date. Note: start_at, not starts_at."),
+        .describe("Y-m-d, e.g. 2026-11-10. Note: start_at, not starts_at."),
       due_reminder: z
         .string()
         .optional()
-        .describe("ISO 8601 time at which a due reminder is sent."),
+        .describe("Y-m-d at which a due reminder is sent."),
       milestone: z.string().nullable().optional().describe("Milestone ID (mst_…)."),
       parent: z.string().optional().describe("Parent task ID (tsk_…)."),
       remaining_minutes_estimate: z.number().int().optional(),
@@ -113,12 +115,12 @@ export function registerTaskTools(reg: ToolRegistry): void {
       title: z.string().optional(),
       description: z.string().optional(),
       assignee: z.string().nullable().optional(),
-      due_at: z.string().nullable().optional(),
+      due_at: z.string().nullable().optional().describe("Y-m-d, not ISO 8601."),
       start_at: z
         .string()
         .nullable()
         .optional()
-        .describe("ISO 8601. Note: start_at, not starts_at."),
+        .describe("Y-m-d. Note: start_at, not starts_at."),
       due_reminder: z.string().nullable().optional(),
       milestone: z.string().nullable().optional(),
       remaining_minutes_estimate: z.number().int().optional(),
@@ -265,7 +267,7 @@ export function registerTaskTools(reg: ToolRegistry): void {
       title: z.string(),
       subtask_list: z
         .string()
-        .describe("Subtask list ID (tskl_…) to create it in. Required."),
+        .describe("Subtask list ID (stl_…) to create it in. Required. Kitchen's docs show tskl_; the live API returns stl_."),
       due_at: z.string().nullable().optional().describe("Y-m-d, e.g. 2026-03-25."),
     },
     buildRequest: ({ task_id, ...rest }) => ({

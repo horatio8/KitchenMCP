@@ -327,12 +327,23 @@ than issuing requests, so it is fast and offline.
 
 **What it does not prove.** It checks the code against our reading of
 the documentation. It does not check the documentation against the live
-API, and it issues no requests. Every bug found in the audit of
-2026-11-03 was found by reading docs — but the four bugs found before
-that (tasks nested under boards, PUT not PATCH on tasks, `visibility`
-required, `format` required) were found by live calls returning 404 and
-422. Docs are necessary and not sufficient. A real smoke test against a
-workspace is still owed.
+API, and it issues no requests.
+
+That distinction is not theoretical. A smoke test against a real
+workspace on 2026-11-07 found three places where the documentation is
+simply wrong, one of which the doc-driven audit had actively broken:
+
+| Documented | Actual |
+|---|---|
+| `hex_color` required when creating a label | The API rejects it and requires `color` |
+| Subtask list ids look like `tskl_…` | They are `stl_…` |
+| `due_at` / `start_at` take a time | `Y-m-d` only on write; ISO 8601 422s, although the response returns a full timestamp |
+
+The label one matters most: the original code sent `color` and was
+right. The audit changed it to `hex_color` because the documentation
+said so, which turned a working call into a 422. Reading the docs is
+necessary and is not sufficient, and where the two disagree the live API
+wins and the code carries a comment saying so.
 
 `scripts/test-transport.mjs` boots the real app on an ephemeral port and
 exercises `/mcp` the way awkward clients do: a stingy `Accept` header, a

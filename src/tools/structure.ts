@@ -470,16 +470,19 @@ export function registerStructureTools(reg: ToolRegistry): void {
     }),
   });
 
+  // The field is `color`. The docs say `hex_color` is required; the live
+  // API rejects that and demands `color`. Verified against
+  // teller.kitchen.co on 2026-11-07 — the documentation is wrong here.
   reg.addCall({
     name: "kitchen_create_label",
     description:
-      "Create a label on a board. hex_color is required; title is optional.",
+      "Create a label on a board. color is required; title is optional. (Kitchen's docs call this field hex_color — they are wrong, the API takes color.)",
     method: "POST",
     inputSchema: {
       board_id: z.string(),
-      hex_color: z
+      color: z
         .string()
-        .describe("Hex colour, e.g. '#FF00FF'. Required by the API."),
+        .describe("Hex colour, e.g. '#FF00FF'. Required. Not 'hex_color'."),
       title: z.string().optional(),
     },
     buildRequest: ({ board_id, ...body }) => ({
@@ -496,7 +499,7 @@ export function registerStructureTools(reg: ToolRegistry): void {
       board_id: z.string(),
       id: z.string(),
       title: z.string().optional(),
-      hex_color: z.string().optional().describe("Hex colour, e.g. '#FF00FF'."),
+      color: z.string().optional().describe("Hex colour, e.g. '#FF00FF'."),
     },
     buildRequest: ({ board_id, id, ...rest }) => ({
       path: `/api/boards/${encodeURIComponent(board_id)}/labels/${encodeURIComponent(id)}`,
