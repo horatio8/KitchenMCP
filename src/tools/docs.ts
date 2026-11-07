@@ -1,6 +1,57 @@
 import { z } from "zod";
-import type { ToolRegistry } from "./registry.js";
+import type { ToolContext, ToolRegistry } from "./registry.js";
 import { expandShape, paginationShape, pickQuery } from "./common.js";
+import { callKitchen, KitchenApiError } from "../kitchen/client.js";
+import {
+  folderNotChosen,
+  folderNotShared,
+  getFolder,
+  listSharedFolders,
+  noSharedFolder,
+  type NeedsAnswer,
+} from "./client-sharing.js";
+
+/**
+ * Is this membership target a client rather than a teammate?
+ *
+ * A company is always a client organisation. A bare user id could be
+ * either, and there is no /api/users/{id} endpoint — that 404s. The
+ * client register is the discriminator: /api/clients/{id} returns the
+ * user with group "client", and 404s ("No query results for model
+ * [App\\User]") for a team member. Both were checked against the live
+ * API; neither is documented.
+ *
+ * A 404 therefore means teammate, and the guard is skipped. Any other
+ * failure — network, 5xx — is treated as a client, since guarding a
+ * teammate needlessly is far cheaper than letting a client doc slip
+ * out unfiled.
+ */
+async function targetIsClient(
+  ctx: ToolContext,
+  args: { user?: string | undefined; company?: string | undefined },
+): Promise<boolean> {
+  if (args.company) return true;
+  if (!args.user) return false;
+  try {
+    const u = (await callKitchen(ctx.credentials, {
+      method: "GET",
+      path: `/api/clients/${encodeURIComponent(args.user)}`,
+    })) as { group?: string } | null;
+    return u ? u.group !== "manager" : true;
+  } catch (err) {
+    if (err instanceof KitchenApiError && err.status === 404) return false;
+    return true;
+  }
+}
+
+/** Shared-folder precondition for anything that exposes a doc to a client. */
+async function requireSharedClientFolder(
+  ctx: ToolContext,
+  what: string,
+): Promise<NeedsAnswer | null> {
+  const shared = await listSharedFolders(ctx);
+  return shared.length ? null : noSharedFolder(what);
+}
 
 export function registerDocTools(reg: ToolRegistry): void {
   reg.addCall({
@@ -35,7 +86,8 @@ export function registerDocTools(reg: ToolRegistry): void {
   reg.addCall({
     name: "kitchen_create_doc",
     description:
-      "Create a doc. visibility is required. Note the doc's text is not settable here — the API takes a 'description', not page content.",
+      "Create a doc. visibility is required. Note the doc's text is not settable here — the API takes a 'description', not page content. " +
+      "For anything a client will see, pass visibility 'shared' at creation and name a shared 'folder': Kitchen refuses to add a client to a doc that is not already shared (400 \"Could not add a client, because the resource is not shared\"), and a shared doc with no folder lands at the workspace root where nobody will find it. If no shared folder exists this tool stops and asks rather than guessing.",
     method: "POST",
     inputSchema: {
       title: z.string(),
@@ -53,6 +105,18 @@ export function registerDocTools(reg: ToolRegistry): void {
         ),
     },
     buildRequest: (input) => ({ path: "/api/docs", body: input }),
+    // Client-facing docs must be born in a shared client folder.
+    preflight: async (input, ctx) => {
+      if (input.visibility !== "shared") return null;
+      const shared = await listSharedFolders(ctx);
+      if (!shared.length) return noSharedFolder("creating a client-visible doc");
+      if (!input.folder) return folderNotChosen(shared, input as Record<string, unknown>);
+      const folder = await getFolder(ctx, input.folder);
+      if (folder && folder.visibility !== "shared") {
+        return folderNotShared(folder, shared, input as Record<string, unknown>);
+      }
+      return null;
+    },
   });
 
   reg.addCall({
@@ -69,6 +133,10 @@ export function registerDocTools(reg: ToolRegistry): void {
       path: `/api/docs/${encodeURIComponent(id)}`,
       body: rest,
     }),
+    preflight: async (input, ctx) =>
+      input.visibility === "shared"
+        ? requireSharedClientFolder(ctx, "sharing this doc with clients")
+        : null,
   });
 
   reg.addCall({
@@ -136,7 +204,8 @@ export function registerDocTools(reg: ToolRegistry): void {
   reg.addCall({
     name: "kitchen_create_doc_membership",
     description:
-      "Give a user or a company access to a doc. role is required, and you pass either 'user' or 'company', not both. Omit 'notification' and nobody is emailed.",
+      "Give a user or a company access to a doc. role is required, and you pass either 'user' or 'company', not both. Omit 'notification' and nobody is emailed. " +
+      "The doc's visibility must already be 'shared' before a client can be added — otherwise Kitchen returns 400 \"Could not add a client, because the resource is not shared\". Client grants also require a shared client folder to exist; if none does, this tool stops and asks.",
     method: "POST",
     inputSchema: {
       doc_id: z.string(),
@@ -155,6 +224,10 @@ export function registerDocTools(reg: ToolRegistry): void {
       path: `/api/docs/${encodeURIComponent(doc_id)}/memberships`,
       body: rest,
     }),
+    preflight: async (input, ctx) => {
+      if (!(await targetIsClient(ctx, input))) return null;
+      return requireSharedClientFolder(ctx, "granting a client access to this doc");
+    },
   });
 
   reg.addCall({

@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/test-workflow.mjs && node scripts/test-api-contract.mjs && node scripts/test-transport.mjs"
+    "test": "node scripts/test-workflow.mjs && node scripts/test-api-contract.mjs && node scripts/test-client-sharing.mjs && node scripts/test-transport.mjs"
   },
   "engines": {
     "node": ">=20"

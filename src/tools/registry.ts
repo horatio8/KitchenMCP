@@ -133,6 +133,18 @@ export class ToolRegistry {
       buildRequest: (
         input: Shape extends ZodRawShape ? z.objectOutputType<Shape, z.ZodTypeAny> : unknown,
       ) => { path: string; query?: Record<string, unknown>; body?: unknown };
+      /**
+       * Optional check run before the request is issued. Return a value
+       * to answer with it instead of calling Kitchen; return null to
+       * proceed. Used for preconditions a declarative call cannot
+       * express — e.g. refusing to expose a doc to a client until a
+       * shared client folder exists. The declared HTTP contract is
+       * still registered either way, so contract tests are unaffected.
+       */
+      preflight?: (
+        input: Shape extends ZodRawShape ? z.objectOutputType<Shape, z.ZodTypeAny> : unknown,
+        ctx: ToolContext,
+      ) => Promise<unknown | null>;
     },
   ): void {
     this.specs.push({
@@ -146,6 +158,10 @@ export class ToolRegistry {
     this.add<Shape>({
       ...def,
       handler: async (input, ctx) => {
+        if (def.preflight) {
+          const answered = await def.preflight(input as any, ctx);
+          if (answered !== null && answered !== undefined) return answered;
+        }
         const req = def.buildRequest(input);
         return callKitchen(ctx.credentials, {
           method: def.method,
