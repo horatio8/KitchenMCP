@@ -9,7 +9,7 @@ import { logger } from "./logger.js";
 import { handleMcpRequest, mcpSessionsEnabled } from "./mcp.js";
 import { buildOAuthRouter, extractCredentialsFromBearer, getSigningSecret } from "./oauth/index.js";
 import { webhookDispatchBeforeAck } from "./webhooks/receiver.js";
-import { sinkEnabled } from "./webhooks/sink.js";
+import { sinkDiagnostics } from "./webhooks/sink.js";
 import { buildWebhookRouter } from "./webhooks/receiver.js";
 
 const JSON_MAX = "1mb";
@@ -229,8 +229,10 @@ export function buildApp(): express.Express {
         // Durable capture of every verified event. Without it, payloads
         // are verified and discarded, and anything Kitchen has no read
         // API for — file thread comments especially — is unrecoverable.
-        enabled: sinkEnabled(),
+        // sawVariables names (never prints) the blob-related variables
+        // this process can see, so a wrong attach is diagnosable here.
         storage: "vercel-blob",
+        ...sinkDiagnostics(),
       },
       webhookDispatch: {
         // What a verified event does next. Nothing auto-writes into the

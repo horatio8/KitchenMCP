@@ -31,12 +31,72 @@ import { logger } from "../logger.js";
  * before rather than failing every delivery.
  */
 
-const TOKEN = process.env.BLOB_READ_WRITE_TOKEN?.trim() || null;
 const PREFIX = "kitchen";
 
-/** Whether a store is attached. Surfaced on /healthz. */
+/**
+ * Finding the store's credentials is fiddlier than it should be.
+ *
+ * Vercel names the token BLOB_READ_WRITE_TOKEN by default, but the
+ * attach dialog offers a custom prefix, which replaces the leading
+ * word — so it can arrive as ANYTHING_BLOB_READ_WRITE_TOKEN. A store
+ * attached the newer way injects BLOB_STORE_ID and no token at all,
+ * and the SDK then authenticates with the function's own Vercel
+ * identity.
+ *
+ * Checking only the default name means a store that is correctly
+ * attached reads as "no sink", which is indistinguishable from not
+ * having set it up. So: accept any of them, and report what was found.
+ */
+function resolveToken(): string | null {
+  const explicit = process.env.KITCHEN_BLOB_TOKEN?.trim();
+  if (explicit) return explicit;
+  const exact = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  if (exact) return exact;
+  for (const [name, value] of Object.entries(process.env)) {
+    if (name.endsWith("BLOB_READ_WRITE_TOKEN") && value?.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+/** A store attached without a token, authenticated by function identity. */
+function hasAmbientStore(): boolean {
+  return Object.entries(process.env).some(
+    ([name, value]) => name.endsWith("BLOB_STORE_ID") && Boolean(value?.trim()),
+  );
+}
+
+const TOKEN = resolveToken();
+const AMBIENT = TOKEN === null && hasAmbientStore();
+
+/** Token option for the SDK — omitted entirely when using function identity. */
+function auth(): { token?: string } {
+  return TOKEN ? { token: TOKEN } : {};
+}
+
+/** Whether a store is reachable. Surfaced on /healthz. */
 export function sinkEnabled(): boolean {
-  return TOKEN !== null;
+  return TOKEN !== null || AMBIENT;
+}
+
+/**
+ * Names (never values) of the blob-related variables visible to this
+ * process, so a misconfigured attach can be diagnosed from /healthz
+ * instead of by guessing.
+ */
+export function sinkDiagnostics(): {
+  enabled: boolean;
+  auth: "token" | "function-identity" | "none";
+  sawVariables: string[];
+} {
+  return {
+    enabled: sinkEnabled(),
+    auth: TOKEN ? "token" : AMBIENT ? "function-identity" : "none",
+    sawVariables: Object.keys(process.env)
+      .filter((n) => /BLOB|VERCEL_OIDC/i.test(n))
+      .sort(),
+  };
 }
 
 export interface StoredEvent {
@@ -71,7 +131,7 @@ export async function captureEvent(args: {
   created?: number | undefined;
   payload: unknown;
 }): Promise<string | null> {
-  if (!TOKEN) return null;
+  if (!sinkEnabled()) return null;
 
   const receivedAt = new Date();
   const key = keyFor(args.eventId, receivedAt);
@@ -91,7 +151,7 @@ export async function captureEvent(args: {
   try {
     await put(key, JSON.stringify(record, null, 2), {
       access: "private",
-      token: TOKEN,
+      ...auth(),
       contentType: "application/json",
       // Deterministic key + overwrite = a retried event rewrites the
       // same object with the same bytes, rather than duplicating.
@@ -120,11 +180,11 @@ export async function listEvents(args: {
   limit?: number | undefined;
   cursor?: string | undefined;
 }): Promise<{ events: EventSummary[]; cursor: string | null; hasMore: boolean }> {
-  if (!TOKEN) throw new Error("No webhook sink configured (BLOB_READ_WRITE_TOKEN unset)");
+  if (!sinkEnabled()) throw new Error("No webhook sink configured");
 
   const prefix = args.date ? `${PREFIX}/${args.date}/` : `${PREFIX}/`;
   const res = await list({
-    token: TOKEN,
+    ...auth(),
     prefix,
     limit: args.limit ?? 100,
     ...(args.cursor ? { cursor: args.cursor } : {}),
@@ -147,9 +207,9 @@ export async function listEvents(args: {
 
 /** Read one captured event in full. */
 export async function readEvent(key: string): Promise<StoredEvent | null> {
-  if (!TOKEN) throw new Error("No webhook sink configured (BLOB_READ_WRITE_TOKEN unset)");
+  if (!sinkEnabled()) throw new Error("No webhook sink configured");
 
-  const res = await get(key, { access: "private", token: TOKEN });
+  const res = await get(key, { access: "private", ...auth() });
   if (!res || res.statusCode !== 200 || !res.stream) return null;
 
   const text = await new Response(res.stream).text();
