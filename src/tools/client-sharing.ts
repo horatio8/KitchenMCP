@@ -233,3 +233,117 @@ export async function targetIsClient(
     return true;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Google documents embedded in Kitchen                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * An embedded Google document has to open without a login.
+ *
+ * The client is not in the Teller Google Workspace. If the file is
+ * shared only with named accounts, the embed renders a sign-in wall
+ * inside the portal, and the client sees a Google login screen where
+ * the creative should be. They cannot act on that, and it reads as
+ * the portal being broken.
+ *
+ * So the file must be shared with "anyone with the link", and with
+ * `writer` where the client is expected to edit — which the approval
+ * pattern always expects. Verified against the live file behind
+ * pe_386757c601eca1774f0c87b6: permissions are
+ * {id: anyoneWithLink, role: writer, type: anyone}, and an anonymous
+ * fetch with no Google session returns 200 and the full text.
+ *
+ * This server holds no Google credentials, so it cannot check Drive
+ * itself. It does two things it can do honestly: strip the URL forms
+ * that break for other people, and refuse to file a Google document
+ * until the caller states that link sharing is on. The second is an
+ * attestation, not a verification, and says so.
+ */
+
+const GOOGLE_DOC_HOST = /^(docs|drive|sheets|slides)\.google\.com$/i;
+
+export function isGoogleDocUrl(url: string): boolean {
+  try {
+    return GOOGLE_DOC_HOST.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove the account-scoped `/u/<n>/` segment.
+ *
+ * A URL copied from the browser bar of a signed-in account carries it,
+ * and it pins the link to *that account slot* on whoever opens it.
+ * The client's slot 0 is their own Google account, not ours, so the
+ * link resolves to a file they have no access to — a permission error
+ * on a file that is, in fact, public. It is the most common way a
+ * correctly shared document still fails to open.
+ */
+export function normaliseGoogleDocUrl(url: string): { url: string; notes: string[] } {
+  if (!isGoogleDocUrl(url)) return { url, notes: [] };
+  const notes: string[] = [];
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { url, notes: [] };
+  }
+
+  const stripped = parsed.pathname.replace(/\/u\/\d+(?=\/)/g, "");
+  if (stripped !== parsed.pathname) {
+    notes.push(
+      "Removed the account-scoped /u/<n>/ segment, which pins the link to the " +
+        "opener's own account slot and fails for anyone but its author.",
+    );
+    parsed.pathname = stripped;
+  }
+
+  return { url: parsed.toString(), notes };
+}
+
+/** The Drive file id, where the URL carries one. */
+export function driveFileId(url: string): string | null {
+  const match = /\/d\/([A-Za-z0-9_-]{10,})/.exec(url);
+  return match?.[1] ?? null;
+}
+
+/**
+ * The caller has not stated that link sharing is on, so stop and say
+ * exactly what to do. Includes the Drive call, with the file id
+ * already filled in where the URL gave one up.
+ */
+export function needsLinkSharing(url: string, forEditing: boolean): NeedsAnswer {
+  const fileId = driveFileId(url);
+  const role = forEditing ? "writer" : "reader";
+  return {
+    status: "needs_user_decision",
+    reason: "google_link_sharing_unconfirmed",
+    message:
+      `Stopped before embedding a Google document. The client is not in the ` +
+      `Teller Google Workspace, so unless this file is shared with "anyone ` +
+      `with the link" the embed shows them a Google sign-in wall inside the ` +
+      `portal — which reads as the portal being broken. This server has no ` +
+      `Google credentials and cannot check Drive, so it will not assume.`,
+    question:
+      `Is this Google document shared with "anyone with the link"? If not, set ` +
+      `it first — then retry with link_sharing_confirmed: true.`,
+    options: [
+      {
+        label: `Set link sharing to anyone-with-link (${role})`,
+        tool: "google_drive.share_file",
+        arguments: {
+          fileId: fileId ?? "<Drive file id>",
+          permissionId: "anyoneWithLink",
+          role,
+        },
+      },
+      {
+        label: "Confirm it is already shared and proceed",
+        tool: "kitchen_create_embed",
+        arguments: { url, link_sharing_confirmed: true },
+      },
+    ],
+  };
+}

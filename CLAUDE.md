@@ -24,6 +24,26 @@ folder and grant the client membership.
 Use an **embed** (`pe_…`) for this, never a doc (`doc_…`). A Kitchen
 doc has no writable body, so a doc can be created and never filled.
 
+## Embedded Google documents must open without a login
+
+Every Google document embedded in Kitchen is shared with **anyone with
+the link**, role **writer**:
+
+```
+share_file  fileId: <id>  permissionId: "anyoneWithLink"  role: "writer"
+```
+
+The client is not in the Teller Google Workspace. Share it with named
+accounts only and the embed shows them a Google sign-in wall inside the
+portal. Set this before embedding, confirm it with
+`get_file_permissions`, then pass `link_sharing_confirmed: true` to
+`kitchen_create_embed`.
+
+This does mean anyone holding the URL can edit. That is a deliberate
+trade for login-free editing; see the tradeoff note in
+`docs/APPROVAL-PATTERN.md` and do not use it for contents that would
+matter in a stranger's hands.
+
 ## Client work must live in a shared folder
 
 Any tool that exposes a doc or embed to a client checks first that a

@@ -25,11 +25,51 @@ reformatting, no helpful tightening. If the artefact is HTML, or has
 markup that matters, carry it across so the client sees what will
 actually ship.
 
-### 2. Give the client edit access to that Google Doc
+### 2. Share it publicly, with edit access
 
-Editor, not commenter. The point is that they can fix the words
-themselves rather than describing the fix in a comment thread for
-someone to re-key.
+Two things, and both matter.
+
+**Link sharing must be on.** `anyone with the link`, not named
+accounts. The client is not in the Teller Google Workspace, so a file
+shared only with named accounts renders a Google sign-in wall inside
+the Kitchen portal. The client cannot act on that, and it reads as the
+portal being broken.
+
+**The role is `writer`, not `commenter`.** The point is that they can
+fix the words themselves rather than describing the fix in a comment
+thread for someone to re-key.
+
+So, before embedding:
+
+```
+share_file  fileId: <id>  permissionId: "anyoneWithLink"  role: "writer"
+```
+
+and confirm with `get_file_permissions`. The target state is exactly:
+
+```json
+{"id": "anyoneWithLink", "role": "writer", "type": "anyone"}
+```
+
+Verified: that is the live state of the file behind
+`pe_386757c601eca1774f0c87b6`, and an anonymous fetch with no Google
+session returns 200 with the full text.
+
+**The tradeoff, stated once.** `anyone with the link` + `writer` means
+anyone holding the URL can edit the document, not only the client.
+The URL lives in the client's shared Kitchen folder, so in practice
+the audience is whoever can reach that folder plus anyone they forward
+it to. That is the price of a client editing without a login, and it
+is accepted deliberately. Do not use this for anything whose contents
+would matter in a stranger's hands.
+
+**Watch the `/u/<n>/` trap.** A URL copied from the browser bar of a
+signed-in account looks like
+`docs.google.com/document/u/0/d/<id>/edit`. That `/u/0/` pins the link
+to the *opener's* account slot, so it resolves to a file the client has
+no access to — a permission error on a document that is genuinely
+public. `kitchen_create_embed` strips it automatically and says so, but
+it is worth recognising by eye.
 
 ### 3. File it under `Teller > Clients > <Client>`
 
@@ -51,9 +91,15 @@ If the client has no folder, say so and ask before creating one.
 ### 4. Embed it in the client's shared Kitchen folder
 
 `kitchen_create_embed` with the Google Doc's `/edit` URL,
-`visibility: "shared"`, and `folder` set to the client's shared Kitchen
-folder. Then `kitchen_create_embed_membership` to grant the client
-`embed_manager` (or `embed_viewer` if they should read only).
+`visibility: "shared"`, `folder` set to the client's shared Kitchen
+folder, and `link_sharing_confirmed: true` once step 2 is done. Then
+`kitchen_create_embed_membership` to grant the client `embed_manager`
+(or `embed_viewer` if they should read only).
+
+`link_sharing_confirmed` is an attestation, not a verification: this
+server holds no Google credentials and cannot see Drive. It exists so
+that the step cannot be skipped silently by any client of this MCP,
+including ones that have never read this document.
 
 Note the object: **an embed (`pe_…`), not a doc (`doc_…`)**. A doc
 cannot hold the Google Doc, for the reason above.
@@ -87,7 +133,13 @@ is the client's call, not the server's.
 Enforced on `kitchen_create_doc`, `kitchen_update_doc`,
 `kitchen_create_doc_membership`, `kitchen_create_embed`,
 `kitchen_update_embed` and `kitchen_create_embed_membership`.
-Asserted in `scripts/test-client-sharing.mjs`.
+
+`kitchen_create_embed` and `kitchen_update_embed` additionally refuse a
+Google document until `link_sharing_confirmed` is passed, and strip
+account-scoped `/u/<n>/` URLs on the way through. The sharing check
+runs before the folder check because it costs no API calls.
+
+All asserted in `scripts/test-client-sharing.mjs`.
 
 ## API facts found the hard way
 

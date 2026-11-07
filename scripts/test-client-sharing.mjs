@@ -326,10 +326,14 @@ async function testUpdateDoc() {
 
 async function testCreateEmbed() {
   const create = toolHandler("kitchen_create_embed");
+  // link_sharing_confirmed is set throughout: these assertions are about
+  // the folder guard, and the Google sharing check runs first and would
+  // otherwise answer every one of them.
   const args = {
     title: "Media Release (editable)",
     url: "https://docs.google.com/document/d/abc/edit",
     visibility: "shared",
+    link_sharing_confirmed: true,
   };
 
   await withKitchen([...folders([PRIVATE])], async (calls) => {
@@ -409,6 +413,95 @@ async function testCreateEmbed() {
   });
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Google documents must open without a login                          */
+/* ------------------------------------------------------------------ */
+
+async function testGoogleLinkSharing() {
+  const create = toolHandler("kitchen_create_embed");
+  const GDOC = "https://docs.google.com/document/d/1rNqKhU96T7MM9H7epZXHxXPAyv5QMCUHwNvLPYlhmuw/edit";
+  const base = { title: "Media Release (editable)", visibility: "shared", folder: "fo_shared" };
+
+  // Unconfirmed sharing: stop, whatever else is in order.
+  await withKitchen([...folders([SHARED])], async (calls) => {
+    const res = await create({ ...base, url: GDOC });
+    check(
+      "a Google doc with unconfirmed link sharing stops and asks",
+      res.reason === "google_link_sharing_unconfirmed",
+      JSON.stringify(res).slice(0, 200),
+    );
+    check(
+      "it names the Drive call, with the file id filled in",
+      res.options?.[0]?.arguments?.permissionId === "anyoneWithLink" &&
+        res.options[0].arguments.fileId === "1rNqKhU96T7MM9H7epZXHxXPAyv5QMCUHwNvLPYlhmuw",
+      JSON.stringify(res.options?.[0]),
+    );
+    check(
+      "a client-editable doc asks for writer, not reader",
+      res.options[0].arguments.role === "writer",
+      res.options[0].arguments.role,
+    );
+    check("no embed was created", !calls.includes("POST /api/embeds"), calls.join(", "));
+  });
+
+  // Confirmed: proceeds.
+  await withKitchen(
+    [...folders([SHARED]), [/^\/api\/embeds$/, () => ({ id: "pe_g1" })]],
+    async (calls) => {
+      const res = await create({ ...base, url: GDOC, link_sharing_confirmed: true });
+      check("with sharing confirmed the embed is created", res.id === "pe_g1", JSON.stringify(res));
+      check("it reached POST /api/embeds", calls.includes("POST /api/embeds"), calls.join(", "));
+    },
+  );
+
+  // A non-Google URL is not this guard's business.
+  await withKitchen(
+    [...folders([SHARED]), [/^\/api\/embeds$/, () => ({ id: "pe_other" })]],
+    async () => {
+      const res = await create({ ...base, url: "https://teamup.com/abc" });
+      check("a non-Google URL needs no sharing attestation", res.id === "pe_other", JSON.stringify(res));
+    },
+  );
+
+  // The /u/<n>/ trap: stripped, because it fails for everyone but its author.
+  const { normaliseGoogleDocUrl, driveFileId, isGoogleDocUrl } = await import(
+    "../dist/tools/client-sharing.js"
+  );
+  const scoped =
+    "https://docs.google.com/document/u/0/d/1rNqKhU96T7MM9H7epZXHxXPAyv5QMCUHwNvLPYlhmuw/edit?usp=sharing";
+  const normalised = normaliseGoogleDocUrl(scoped);
+  check(
+    "an account-scoped /u/0/ URL is stripped",
+    normalised.url ===
+      "https://docs.google.com/document/d/1rNqKhU96T7MM9H7epZXHxXPAyv5QMCUHwNvLPYlhmuw/edit?usp=sharing",
+    normalised.url,
+  );
+  check("and says why it changed it", normalised.notes.length === 1, JSON.stringify(normalised.notes));
+  check(
+    "a clean URL is left exactly as it is",
+    normaliseGoogleDocUrl(GDOC).url === GDOC && normaliseGoogleDocUrl(GDOC).notes.length === 0,
+  );
+  check("the file id is recovered from the URL", driveFileId(GDOC) === "1rNqKhU96T7MM9H7epZXHxXPAyv5QMCUHwNvLPYlhmuw");
+  check(
+    "docs, drive, sheets and slides all count as Google documents",
+    ["docs", "drive", "sheets", "slides"].every((h) =>
+      isGoogleDocUrl(`https://${h}.google.com/document/d/abcdefghij/edit`),
+    ),
+  );
+  check("a lookalike host does not", !isGoogleDocUrl("https://docs.google.com.evil.test/d/abcdefghij/edit"));
+
+  // The scoped URL reaches the API stripped, not just normalised in theory.
+  await withKitchen(
+    [...folders([SHARED]), [/^\/api\/embeds$/, () => ({ id: "pe_g2" })]],
+    async () => {
+      const handler = toolHandler("kitchen_create_embed");
+      const res = await handler({ ...base, url: scoped, link_sharing_confirmed: true });
+      check("the embed is created from a scoped URL", res.id === "pe_g2", JSON.stringify(res));
+    },
+  );
+}
+
 /* ------------------------------------------------------------------ */
 
 async function main() {
@@ -420,6 +513,8 @@ async function main() {
   await testUpdateDoc();
   console.log("\nkitchen_create_embed");
   await testCreateEmbed();
+  console.log("\ngoogle link sharing");
+  await testGoogleLinkSharing();
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

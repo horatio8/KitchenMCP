@@ -5,8 +5,11 @@ import {
   folderNotChosen,
   folderNotShared,
   getFolder,
+  isGoogleDocUrl,
   listSharedFolders,
+  needsLinkSharing,
   noSharedFolder,
+  normaliseGoogleDocUrl,
   targetIsClient,
   type NeedsAnswer,
 } from "./client-sharing.js";
@@ -80,7 +83,8 @@ export function registerEmbedTools(reg: ToolRegistry): void {
     description:
       "Create an embed: a third-party page shown inside Kitchen. title, url and visibility are required. " +
       "This is how a client gets a document they can actually edit — a Kitchen doc has no writable body, so put the text in a Google Doc and embed its URL. " +
-      "For client-facing embeds pass visibility 'shared' and name a shared 'folder'; if no shared folder exists this tool stops and asks rather than filing client work at the root.",
+      "For client-facing embeds pass visibility 'shared' and name a shared 'folder'; if no shared folder exists this tool stops and asks rather than filing client work at the root. " +
+      "A Google document must be shared with 'anyone with the link' before it is embedded, or the client meets a sign-in wall inside the portal; set that in Drive, then pass link_sharing_confirmed: true. Account-scoped /u/<n>/ URLs are stripped automatically because they fail for everyone but their author.",
     method: "POST",
     inputSchema: {
       title: z.string(),
@@ -95,9 +99,22 @@ export function registerEmbedTools(reg: ToolRegistry): void {
         .string()
         .optional()
         .describe("Default team role when visibility is 'internal', e.g. embed_viewer."),
+      link_sharing_confirmed: z
+        .boolean()
+        .optional()
+        .describe(
+          "Required for a Google document: state that it is shared with 'anyone with the link'. This server cannot check Drive, so this is your attestation, not a verification.",
+        ),
     },
-    buildRequest: (input) => ({ path: "/api/embeds", body: input }),
+    buildRequest: ({ link_sharing_confirmed: _confirmed, ...input }) => ({
+      path: "/api/embeds",
+      body: { ...input, url: normaliseGoogleDocUrl(input.url).url },
+    }),
     preflight: async (input, ctx) => {
+      // A Google document that needs a login is worse than no embed.
+      if (isGoogleDocUrl(input.url) && !input.link_sharing_confirmed) {
+        return needsLinkSharing(input.url, input.visibility === "shared");
+      }
       if (input.visibility !== "shared") return null;
       const shared = await listSharedFolders(ctx);
       if (!shared.length) return noSharedFolder("creating a client-visible embed");
@@ -120,15 +137,25 @@ export function registerEmbedTools(reg: ToolRegistry): void {
       url: z.string().optional(),
       description: z.string().optional(),
       visibility: visibility.optional(),
+      link_sharing_confirmed: z
+        .boolean()
+        .optional()
+        .describe(
+          "Required when pointing this embed at a Google document: state that it is shared with 'anyone with the link'.",
+        ),
     },
-    buildRequest: ({ id, ...rest }) => ({
+    buildRequest: ({ id, link_sharing_confirmed: _confirmed, ...rest }) => ({
       path: `/api/embeds/${encodeURIComponent(id)}`,
-      body: rest,
+      body: rest.url ? { ...rest, url: normaliseGoogleDocUrl(rest.url).url } : rest,
     }),
-    preflight: async (input, ctx) =>
-      input.visibility === "shared"
+    preflight: async (input, ctx) => {
+      if (input.url && isGoogleDocUrl(input.url) && !input.link_sharing_confirmed) {
+        return needsLinkSharing(input.url, input.visibility !== "private");
+      }
+      return input.visibility === "shared"
         ? requireSharedClientFolder(ctx, "sharing this embed with clients")
-        : null,
+        : null;
+    },
   });
 
   reg.addCall({
