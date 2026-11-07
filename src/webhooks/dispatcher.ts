@@ -1,6 +1,19 @@
 import { request } from "undici";
 import { logger } from "../logger.js";
 
+/**
+ * Log the body of each verified event, not just its id and type.
+ *
+ * Needed because parts of Kitchen have no read API — see the comment in
+ * dispatch(). Writes client content to the host's logs, so it is opt-in
+ * and should be turned off again once whatever you are chasing is
+ * caught.
+ */
+const LOG_PAYLOAD = /^(1|true|yes|on)$/i.test(
+  process.env.WEBHOOK_LOG_PAYLOAD?.trim() ?? "",
+);
+const PAYLOAD_LOG_LIMIT = 8 * 1024;
+
 export interface KitchenWebhookEvent {
   id: string;
   type: string;
@@ -42,6 +55,30 @@ export class WebhookDispatcher {
       { eventId: event.id, type: event.type, category, created: event.created },
       "kitchen webhook received",
     );
+
+    // Some things Kitchen sends have no read API at all — file thread
+    // comments are the main one: every /api/files/{id}/threads or
+    // /comments route 404s and `expand` refuses them, so the webhook
+    // payload is the only copy that exists outside the UI. Without the
+    // payload in the log there is no way to recover what a client said
+    // on a piece of creative.
+    //
+    // Off unless WEBHOOK_LOG_PAYLOAD is set, because this writes client
+    // content into the host's logs, where it then sits for whatever the
+    // retention period is.
+    if (LOG_PAYLOAD) {
+      const json = JSON.stringify(event.data ?? null);
+      logger.info(
+        {
+          eventId: event.id,
+          type: event.type,
+          category,
+          truncated: json.length > PAYLOAD_LOG_LIMIT,
+          data: json.slice(0, PAYLOAD_LOG_LIMIT),
+        },
+        "kitchen webhook payload",
+      );
+    }
 
     if (this.opts.forwardUrl) {
       // Fire-and-forget; errors are logged but do not surface to Kitchen.
