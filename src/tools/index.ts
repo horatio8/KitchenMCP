@@ -11,6 +11,20 @@ import { registerTaskTools } from "./tasks.js";
 import { registerWebhookTools } from "./webhooks.js";
 import { registerWorkflowTools } from "./workflow.js";
 
+/**
+ * The deliverable-workflow tools are disabled.
+ *
+ * They are a layer on top of the Kitchen API — state machine, gates,
+ * compliance engine, evidence register — built against a brief that is
+ * now closed. The code is left in place and is inert: nothing here
+ * registers it, nothing in the webhook path calls it.
+ *
+ * Set WORKFLOW_TOOLS=1 to register the 19 workflow_* tools again.
+ */
+const WORKFLOW_TOOLS_ENABLED = /^(1|true|yes|on)$/i.test(
+  process.env.WORKFLOW_TOOLS?.trim() ?? "",
+);
+
 export function buildToolRegistry(): ToolRegistry {
   const reg = new ToolRegistry();
   registerTaskTools(reg);
@@ -22,7 +36,7 @@ export function buildToolRegistry(): ToolRegistry {
   registerWebhookTools(reg);
   registerFileTools(reg);
   registerCustomFieldTools(reg);
-  registerWorkflowTools(reg);
+  if (WORKFLOW_TOOLS_ENABLED) registerWorkflowTools(reg);
   registerRawTool(reg);
   return reg;
 }

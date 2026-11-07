@@ -32,12 +32,6 @@ export const config = {
   webhookForwardUrl: process.env.KITCHEN_WEBHOOK_FORWARD_URL?.trim() || null,
   webhookForwardToken: process.env.KITCHEN_WEBHOOK_FORWARD_TOKEN?.trim() || null,
 
-  // Workflow automation reacts to verified webhook events by posting
-  // compliance reports and audit warnings onto the deliverable card.
-  // Off by default: it writes to the workspace, so it must be opted in.
-  workflowAutomation: /^(1|true|yes|on)$/i.test(
-    process.env.WORKFLOW_AUTOMATION?.trim() ?? "",
-  ),
 } as const;
 
 /**

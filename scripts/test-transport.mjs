@@ -115,9 +115,9 @@ async function modeStateless(base) {
   const tools = list.json?.result?.tools ?? [];
   check("tools/list returns the tool set", tools.length > 50, `got ${tools.length} tools`);
   check(
-    "workflow tools are exposed",
-    tools.some((t) => t.name === "workflow_create_deliverable"),
-    `names: ${tools.slice(0, 3).map((t) => t.name).join(", ")}`,
+    "workflow tools are NOT exposed by default",
+    !tools.some((t) => t.name.startsWith("workflow_")),
+    `found: ${tools.filter((t) => t.name.startsWith("workflow_")).map((t) => t.name).join(", ")}`,
   );
   check(
     "kitchen tools are exposed",
@@ -138,19 +138,20 @@ async function modeStateless(base) {
   });
   check("a spec-compliant Accept header still works", strict.res.status === 200, `status ${strict.res.status}`);
 
-  // A full round trip, not just discovery: a tool actually executing on
-  // a request that never saw an initialize.
+  // A full round trip on a request that never saw an initialize. The
+  // tool reaches the Kitchen client and fails there on a fake key,
+  // which still proves the transport carried the call and the result.
   const call = await rpc(base, {
     jsonrpc: "2.0",
     id: 3,
     method: "tools/call",
-    params: { name: "workflow_describe", arguments: {} },
+    params: { name: "kitchen_list_boards", arguments: { per_page: 1 } },
   });
   check("tools/call executes statelessly", call.res.status === 200, `status ${call.res.status}: ${call.text.slice(0, 160)}`);
   check(
-    "tools/call returns a result, not an error",
-    call.json?.result && !call.json.result.isError,
-    JSON.stringify(call.json?.error ?? call.json?.result).slice(0, 200),
+    "tools/call reaches the handler",
+    Boolean(call.json?.result),
+    JSON.stringify(call.json?.error ?? {}).slice(0, 200),
   );
 
   const get = await fetch(`${base}/mcp`, {

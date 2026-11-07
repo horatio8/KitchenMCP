@@ -162,8 +162,15 @@ by design. Endpoint access is `MCP_GATE_TOKEN`'s job.
 
 ## Available tools
 
-163 tools: 144 `kitchen_*` covering the API surface, 19 `workflow_*` for the
-deliverable lifecycle. Call `tools/list` for the schema-rich catalogue.
+147 `kitchen_*` tools covering the API surface. Call `tools/list` for the
+schema-rich catalogue.
+
+The 19 `workflow_*` tools are **disabled**. They are a layer on top of the
+API — deliverable state machine, approval gates, political-ad compliance
+engine, evidence register — built against a brief that is now closed. The
+code is still in `src/workflow/` and is inert: nothing registers the tools
+and nothing in the webhook path calls it. Set `WORKFLOW_TOOLS=1` to turn
+them back on.
 
 - **Tasks**: list/get/create/update/delete, toggle completion, move
 - **Subtask lists and subtasks**: full CRUD. A subtask needs a subtask

@@ -224,18 +224,19 @@ export function buildApp(): express.Express {
           !config.fallbackKitchenWorkspace && "KITCHEN_WORKSPACE",
         ].filter(Boolean),
       },
-      workflowAutomation: {
-        // Off by default: it writes into the workspace, so it is opt-in.
-        // When false, verified events are logged and dropped — which
-        // looks identical to working webhooks from Kitchen's side.
-        enabled: config.workflowAutomation,
-        // Automation needs server-side Kitchen credentials to write.
-        canWrite: Boolean(
-          config.fallbackKitchenApiKey && config.fallbackKitchenWorkspace,
-        ),
+      webhookDispatch: {
+        // What a verified event does next. Nothing auto-writes into the
+        // workspace: the deliverable-workflow automation is gone from
+        // this path.
+        forwarding: Boolean(config.webhookForwardUrl),
         // On serverless, work started after the ack may never run, so
         // the dispatch is awaited before acking instead.
         dispatchBeforeAck: webhookDispatchBeforeAck(),
+      },
+      workflowTools: {
+        // The 19 workflow_* tools are disabled. WORKFLOW_TOOLS=1 to
+        // register them again.
+        enabled: /^(1|true|yes|on)$/i.test(process.env.WORKFLOW_TOOLS?.trim() ?? ""),
       },
       mcp: {
         endpoint: "/mcp",
