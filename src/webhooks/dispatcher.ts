@@ -1,5 +1,6 @@
 import { request } from "undici";
 import { logger } from "../logger.js";
+import { captureEvent, sinkEnabled } from "./sink.js";
 
 /**
  * Log the body of each verified event, not just its id and type.
@@ -78,6 +79,22 @@ export class WebhookDispatcher {
         },
         "kitchen webhook payload",
       );
+    }
+
+    // Durable capture first. Awaited, so the event is on disk before
+    // Kitchen is acked — otherwise a frozen serverless instance loses
+    // it, which is exactly how a client's file comment went missing.
+    if (sinkEnabled()) {
+      const key = await captureEvent({
+        eventId: event.id,
+        eventType: event.type,
+        category,
+        created: event.created,
+        payload: event.data,
+      });
+      if (key) {
+        logger.info({ eventId: event.id, type: event.type, key }, "webhook captured");
+      }
     }
 
     if (this.opts.forwardUrl) {

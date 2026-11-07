@@ -9,6 +9,7 @@ import { logger } from "./logger.js";
 import { handleMcpRequest, mcpSessionsEnabled } from "./mcp.js";
 import { buildOAuthRouter, extractCredentialsFromBearer, getSigningSecret } from "./oauth/index.js";
 import { webhookDispatchBeforeAck } from "./webhooks/receiver.js";
+import { sinkEnabled } from "./webhooks/sink.js";
 import { buildWebhookRouter } from "./webhooks/receiver.js";
 
 const JSON_MAX = "1mb";
@@ -223,6 +224,13 @@ export function buildApp(): express.Express {
           !config.fallbackKitchenApiKey && "KITCHEN_API_KEY",
           !config.fallbackKitchenWorkspace && "KITCHEN_WORKSPACE",
         ].filter(Boolean),
+      },
+      webhookSink: {
+        // Durable capture of every verified event. Without it, payloads
+        // are verified and discarded, and anything Kitchen has no read
+        // API for — file thread comments especially — is unrecoverable.
+        enabled: sinkEnabled(),
+        storage: "vercel-blob",
       },
       webhookDispatch: {
         // What a verified event does next. Nothing auto-writes into the

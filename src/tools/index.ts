@@ -3,6 +3,7 @@ import { registerClientTools } from "./clients.js";
 import { registerConversationTools } from "./conversations.js";
 import { registerCustomFieldTools } from "./custom-fields.js";
 import { registerDocTools } from "./docs.js";
+import { registerEventTools } from "./events.js";
 import { registerFileTools } from "./files.js";
 import { registerInvoiceTools } from "./invoices.js";
 import { registerRawTool } from "./raw.js";
@@ -36,6 +37,7 @@ export function buildToolRegistry(): ToolRegistry {
   registerWebhookTools(reg);
   registerFileTools(reg);
   registerCustomFieldTools(reg);
+  registerEventTools(reg);
   if (WORKFLOW_TOOLS_ENABLED) registerWorkflowTools(reg);
   registerRawTool(reg);
   return reg;

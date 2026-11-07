@@ -1,7 +1,7 @@
 {
   "name": "kitchen-mcp-server",
   "version": "0.1.0",
-  "description": "Hosted MCP server for Kitchen.co \u2014 exposes the Kitchen API to MCP-compatible AI clients over secure Streamable HTTP.",
+  "description": "Hosted MCP server for Kitchen.co — exposes the Kitchen API to MCP-compatible AI clients over secure Streamable HTTP.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
+    "@vercel/blob": "^2.8.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",

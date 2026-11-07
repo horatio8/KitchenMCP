@@ -217,6 +217,46 @@ field you sent:
 definitions, with no network calls, so the next slip fails the build
 instead of a request.
 
+## Webhook sink
+
+Every verified event is written to a Vercel Blob store, private access,
+one JSON object per event:
+
+```
+kitchen/2026-11-07/1794033900123-evt_c68457a659fe0eb1b45f0fb2.json
+```
+
+**Why this is not optional.** Parts of Kitchen have no read API.
+`/api/files/{id}/threads`, `/api/files/{id}/comments` and
+`/api/file-threads` all 404, and the file object refuses to expand
+`threads` — the docs describe `file-threads/thread-object` and
+`file-comments/comment-object` and list no endpoints for either. So when
+a client comments on a piece of creative, the webhook payload is the
+only copy of what they said that exists outside the Kitchen UI. Verify
+it, log its id, drop the body, and the comment is gone.
+
+Logs are not a substitute: they expire on the host's schedule, they are
+searchable only as text, and the payload log truncates at 8 KiB.
+
+The key is derived from the event id with no random suffix, so a Kitchen
+retry rewrites the same object with the same bytes. That makes capture
+idempotent across instances, which the in-memory dedupe store cannot be
+on a serverless host.
+
+Read it back with `kitchen_events_list`, `kitchen_events_get` and
+`kitchen_events_search` — the last takes `type`, `category` and a
+`contains` text match over the payload.
+
+### Setup
+
+Attach a Blob store to the project: Vercel → Storage → Create → Blob,
+private, then connect it to this project. That injects
+`BLOB_READ_WRITE_TOKEN` automatically, so there is no env var to set by
+hand. Redeploy and `GET /healthz` shows `webhookSink.enabled: true`.
+
+With no store attached the sink is a no-op and the server behaves as it
+did before, rather than failing every delivery.
+
 ## Webhook receiver
 
 This server also runs a verified Kitchen-webhook ingress at `POST /webhooks/kitchen`. It is **off by default** — enable it by setting `KITCHEN_WEBHOOK_SECRETS`.
