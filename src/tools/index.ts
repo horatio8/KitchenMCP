@@ -3,6 +3,7 @@ import { registerClientTools } from "./clients.js";
 import { registerConversationTools } from "./conversations.js";
 import { registerCustomFieldTools } from "./custom-fields.js";
 import { registerDocTools } from "./docs.js";
+import { registerEmbedTools } from "./embeds.js";
 import { registerEventTools } from "./events.js";
 import { registerFileTools } from "./files.js";
 import { registerInvoiceTools } from "./invoices.js";
@@ -30,6 +31,7 @@ export function buildToolRegistry(): ToolRegistry {
   const reg = new ToolRegistry();
   registerTaskTools(reg);
   registerDocTools(reg);
+  registerEmbedTools(reg);
   registerClientTools(reg);
   registerInvoiceTools(reg);
   registerConversationTools(reg);

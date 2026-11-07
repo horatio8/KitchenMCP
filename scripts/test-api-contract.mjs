@@ -421,6 +421,7 @@ section("destructive operations are flagged");
     "kitchen_remove_task_member",
     "kitchen_remove_task_custom_field",
     "kitchen_delete_doc_membership",
+    "kitchen_delete_embed_membership",
   ]);
   const unexpected = unflagged.filter((n) => !detachers.has(n));
   check(

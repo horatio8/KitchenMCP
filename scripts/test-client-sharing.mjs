@@ -318,6 +318,97 @@ async function testUpdateDoc() {
   );
 }
 
+
+/* ------------------------------------------------------------------ */
+/* kitchen_create_embed — the object the approval pattern actually     */
+/* relies on, since a Kitchen doc has no writable body.                */
+/* ------------------------------------------------------------------ */
+
+async function testCreateEmbed() {
+  const create = toolHandler("kitchen_create_embed");
+  const args = {
+    title: "Media Release (editable)",
+    url: "https://docs.google.com/document/d/abc/edit",
+    visibility: "shared",
+  };
+
+  await withKitchen([...folders([PRIVATE])], async (calls) => {
+    const res = await create(args);
+    check(
+      "shared embed with no shared folder stops and asks",
+      res.reason === "no_shared_client_folder",
+      JSON.stringify(res).slice(0, 180),
+    );
+    check("no embed was created", !calls.includes("POST /api/embeds"), calls.join(", "));
+  });
+
+  await withKitchen([...folders([SHARED, PRIVATE])], async (calls) => {
+    const res = await create(args);
+    check(
+      "shared embed with no folder named stops and asks which",
+      res.reason === "shared_folder_not_specified",
+      JSON.stringify(res).slice(0, 180),
+    );
+    check("no embed was created", !calls.includes("POST /api/embeds"), calls.join(", "));
+  });
+
+  await withKitchen([...folders([SHARED, PRIVATE])], async (calls) => {
+    const res = await create({ ...args, folder: "fo_private" });
+    check(
+      "a client embed aimed at a private folder is refused",
+      res.reason === "folder_not_shared",
+      JSON.stringify(res).slice(0, 180),
+    );
+    check("no embed was created", !calls.includes("POST /api/embeds"), calls.join(", "));
+  });
+
+  await withKitchen(
+    [...folders([SHARED]), [/^\/api\/embeds$/, () => ({ id: "pe_ok", visibility: "shared" })]],
+    async (calls) => {
+      const res = await create({ ...args, folder: "fo_shared" });
+      check("shared embed in a shared folder is created", res.id === "pe_ok", JSON.stringify(res));
+      check("it reached POST /api/embeds", calls.includes("POST /api/embeds"), calls.join(", "));
+    },
+  );
+
+  // The membership half, which is what gives the client edit access.
+  const grant = toolHandler("kitchen_create_embed_membership");
+  await withKitchen(
+    [
+      ...folders([SHARED]),
+      [/^\/api\/clients\/u_client$/, () => ({ id: "u_client", group: "client" })],
+      [/memberships$/, () => ({ id: "nms_e1", role: "embed_manager" })],
+    ],
+    async (calls) => {
+      const res = await grant({
+        embed_id: "pe_ok",
+        role: "embed_manager",
+        user: "u_client",
+      });
+      check("a client can be granted access to an embed", res.id === "nms_e1", JSON.stringify(res));
+      check(
+        "via the embed memberships endpoint",
+        calls.some((c) => c.includes("/api/embeds/pe_ok/memberships")),
+        calls.join(", "),
+      );
+    },
+  );
+
+  await withKitchen([...folders([PRIVATE])], async (calls) => {
+    const res = await grant({ embed_id: "pe_ok", role: "embed_manager", company: "co_1" });
+    check(
+      "an embed grant to a company with no shared folder stops and asks",
+      res.reason === "no_shared_client_folder",
+      JSON.stringify(res).slice(0, 180),
+    );
+    check(
+      "no membership was created",
+      !calls.some((c) => c.includes("memberships")),
+      calls.join(", "),
+    );
+  });
+}
+
 /* ------------------------------------------------------------------ */
 
 async function main() {
@@ -327,6 +418,8 @@ async function main() {
   await testMembership();
   console.log("\nkitchen_update_doc");
   await testUpdateDoc();
+  console.log("\nkitchen_create_embed");
+  await testCreateEmbed();
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

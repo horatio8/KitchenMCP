@@ -1,4 +1,4 @@
-import { callKitchen } from "../kitchen/client.js";
+import { callKitchen, KitchenApiError } from "../kitchen/client.js";
 import type { ToolContext } from "./registry.js";
 
 /**
@@ -199,4 +199,37 @@ export function folderNotChosen(
       },
     ],
   };
+}
+
+/**
+ * Is this membership target a client rather than a teammate?
+ *
+ * A company is always a client organisation. A bare user id could be
+ * either, and there is no /api/users/{id} endpoint — that 404s. The
+ * client register is the discriminator: /api/clients/{id} returns the
+ * user with group "client", and 404s ("No query results for model
+ * [App\\User]") for a team member. Both were checked against the live
+ * API; neither is documented.
+ *
+ * A 404 therefore means teammate, and the guard is skipped. Any other
+ * failure — network, 5xx — is treated as a client, since guarding a
+ * teammate needlessly is far cheaper than letting a client doc slip
+ * out unfiled.
+ */
+export async function targetIsClient(
+  ctx: ToolContext,
+  args: { user?: string | undefined; company?: string | undefined },
+): Promise<boolean> {
+  if (args.company) return true;
+  if (!args.user) return false;
+  try {
+    const u = (await callKitchen(ctx.credentials, {
+      method: "GET",
+      path: `/api/clients/${encodeURIComponent(args.user)}`,
+    })) as { group?: string } | null;
+    return u ? u.group !== "manager" : true;
+  } catch (err) {
+    if (err instanceof KitchenApiError && err.status === 404) return false;
+    return true;
+  }
 }
